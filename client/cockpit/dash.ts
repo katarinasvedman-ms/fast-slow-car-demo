@@ -200,7 +200,9 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   select('hazard').closest('label')?.toggleAttribute('hidden', snapshot.drive.kind === 'free');
   element('reset-help').hidden = !resetRequired;
   text('temperature-help', `${settings.swerveTier} / ${settings.swerveSpeedLimit} km/h`);
-  text('staleness-help', `${settings.stalenessLimitTicks} ticks = ${(settings.stalenessLimitTicks * settings.tickMs / 1000).toFixed(1)} s`);
+  const outsideSliderRange = settings.stalenessLimitTicks > 10;
+  element('staleness-range').hidden = outsideSliderRange;
+  text('staleness-help', `${settings.stalenessLimitTicks} ticks = ${(settings.stalenessLimitTicks * settings.tickMs / 1000).toFixed(1)} s${outsideSliderRange ? ' / above cockpit range 0-10' : ''}`);
   for (const [id, value] of [
     ['speed', world.selectedSpeedKmh], ['speed-number', world.selectedSpeedKmh],
     ['temperature', world.ambientTempC], ['temperature-number', world.ambientTempC],

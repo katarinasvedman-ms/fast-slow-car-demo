@@ -89,7 +89,9 @@
     #road { position: absolute; width: 100%; height: 100%; inset: 0; display: block; }
     #atmosphere { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 32% at 50% 39%, color-mix(in srgb, var(--cp-horizon) 38%, transparent), transparent 80%); }
     #collision-flash { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; background: var(--cp-headlight); }
-    .content { position: relative; z-index: 1; height: 100%; display: grid; grid-template-rows: 72px minmax(0, 1fr) auto auto; }
+    .content { position: relative; z-index: 1; height: 100%; display: grid; grid-template-rows: 72px minmax(0, 1fr) auto; }
+    #bottom-deck { grid-row: 3; height: 50svh; max-height: 50svh; min-height: 0; overflow: hidden; }
+    #deck-content { display: grid; gap: 8px; padding-bottom: 8px; }
     header, .top-status, .row, .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     header { grid-row: 1; padding: 12px 24px; justify-content: space-between; flex-wrap: nowrap; }
     .top-status { position: fixed; z-index: 4; top: 12px; right: 24px; flex-wrap: nowrap; font-size: 18px; }
@@ -133,8 +135,8 @@
     #drive-score > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--cp-border); }
     #drive-score dt { font-size: 28px; } #drive-score dd { font-size: 40px; margin: 0; }
     .braking #motion-status { color: var(--cp-danger); }
-    .cluster { grid-row: 4; display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; padding: 12px 24px 20px; align-items: stretch; }
-    .instrument { padding: 20px; min-width: 0; min-height: 350px; display: flex; flex-direction: column; justify-content: center; gap: 8px; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
+    .cluster { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; padding: 0 24px; align-items: stretch; }
+    .instrument { padding: 12px 16px; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
     .instrument h2 { font-size: 28px; letter-spacing: 0.1em; line-height: 1; margin: 0 0 4px; }
     .reflex h2 { color: var(--cp-accent); }
     .reflex-body { display: flex; align-items: center; gap: 10px; }
@@ -186,18 +188,20 @@
     #supersession { color: var(--cp-success); }
     .drive-buttons { margin-left: auto; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    #controls-band { grid-row: 3; margin: 0 24px; padding: 8px 16px 12px; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
+    #controls-band { margin: 0 24px; padding: 6px 16px; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
     .controls-heading { display: flex; align-items: center; gap: 16px; font-size: 18px; }
     .controls-heading button { padding: 6px 16px; }
-    #tuning-rail { padding-top: 8px; }
+    #tuning-rail { padding-top: 4px; }
     .tuning-fields { display: grid; grid-template-columns: 1.5fr 1.2fr 1fr 1fr 1fr 1.1fr 1.2fr; gap: 16px; align-items: start; }
     #tuning-rail label { color: var(--cp-text); font-size: 18px; min-width: 0; }
     #tuning-rail select { width: 100%; min-width: 0; padding: 8px; height: 42px; font-size: 18px; }
     #tuning-rail #scenario { font-size: 20px; font-weight: 650; border-color: var(--cp-accent); }
     #scenario-watch, #staleness-help, #temperature-help, #reset-help { margin: 0; font-size: 18px; line-height: 1.3; }
     #scenario-watch { margin-top: 4px; color: var(--cp-text-soft); }
-    .tuning-row { display: grid; gap: 4px; min-width: 0; }
-    .tuning-row input[type=number] { width: 100%; height: 42px; padding: 6px 8px; font-size: 20px; }
+    .tuning-row { display: grid; grid-template-columns: minmax(64px, 0.8fr) minmax(0, 1fr); gap: 4px 8px; min-width: 0; }
+    .tuning-row label, .tuning-row p { grid-column: 1 / -1; }
+    .tuning-row input[type=number] { width: 100%; height: 36px; padding: 6px 8px; font-size: 20px; }
+    .tuning-row input[type=range] { align-self: center; }
     .tuning-row input[type=range] { appearance: none; width: 100%; min-width: 0; margin: 0; background: transparent; height: 32px; cursor: pointer; }
     .tuning-row input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--cp-border-strong); border-radius: 6px; }
     .tuning-row input[type=range]::-webkit-slider-thumb { appearance: none; width: 28px; height: 28px; margin-top: -11px; border: 2px solid var(--cp-accent-fg); border-radius: 50%; background: var(--cp-accent); }
@@ -232,20 +236,15 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes shimmer { to { opacity: 0.5; border-radius: 60% 30% 55% 40%; } }
     @keyframes impact-reveal { 0% { opacity: 1; transform: translateX(-50%) scale(1.12); } 65% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(1); } }
-    @media (min-height: 900px) { .instrument { min-height: 380px; } .dial { zoom: 1.2; } .lamps { gap: 8px; } }
+    @media (min-height: 900px) { .dial { zoom: 1.1; } .lamps { gap: 4px; } }
     @media (max-height: 850px) {
-      .content { grid-template-rows: 60px minmax(0, 1fr) auto auto; }
-      .cluster { padding: 8px 24px 12px; }
-      .instrument { min-height: 0; padding: 12px 16px; gap: 4px; }
+      .content { grid-template-rows: 60px minmax(0, 1fr) auto; }
+      .instrument { padding: 8px 12px; gap: 2px; }
       .speed-number { font-size: 64px; }
       #motion-status { margin-top: 4px; font-size: 24px; }
       #gate-verdict { font-size: 48px; }
       #advice-action { font-size: 32px; }
       .tuning-fields { gap: 12px; }
-      .tuning-row { grid-template-columns: minmax(64px, 0.8fr) minmax(0, 1fr); gap: 4px 8px; }
-      .tuning-row label, .tuning-row p { grid-column: 1 / -1; }
-      .tuning-row input[type=number] { height: 36px; }
-      .tuning-row input[type=range] { align-self: center; }
     }
     @media (max-width: 1400px) {
       .cluster { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 8px; }
@@ -268,25 +267,6 @@
         <div class="top-status"><span id="connection" class="badge" role="status">CONNECTING</span><span id="backend" class="badge">CONNECTING</span><span id="tick" class="badge">TICK --</span><button id="details-toggle" aria-expanded="false" aria-controls="detail-panel">Details</button><a href="/" aria-label="2D explainer">2D</a></div>
       </header>
       <p id="error" role="alert"></p>
-      <section id="controls-band" aria-label="Controls">
-      <div class="controls-heading">
-        <button id="tuning-toggle" aria-controls="tuning-rail" aria-expanded="true">Controls [T]</button>
-        <p id="reset-help" hidden>Reset to change mode / hazard</p>
-        <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="stop" hidden>STOP</button><button id="reset" disabled>RESET</button></div>
-      </div>
-      <aside id="tuning-rail" aria-label="Live tuning controls">
-        <div class="tuning-fields">
-          <label>Scenario<select id="scenario" disabled><option value="custom">Custom</option></select></label>
-          <label>Mode<select id="mode" disabled><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
-          <label>Hazard<select id="hazard" disabled><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
-          <div class="tuning-row"><label for="speed-number">Speed / km/h</label><input id="speed-number" aria-label="Selected speed in km/h" type="number" min="50" max="130" step="any" value="90" required disabled><input id="speed" aria-label="Selected speed slider" type="range" min="50" max="130" step="any" value="90" disabled></div>
-          <div class="tuning-row"><label for="threshold-number">Damage threshold</label><input id="threshold-number" aria-label="Damage threshold" type="number" min="0" max="1" step="any" value="0.35" required disabled><input id="threshold" aria-label="Damage threshold slider" type="range" min="0" max="1" step="any" value="0.35" disabled></div>
-          <div class="tuning-row"><label for="staleness">Staleness / ticks</label><input id="staleness" aria-label="Staleness limit in ticks" aria-describedby="staleness-help" type="number" min="0" max="1000" step="1" value="3" required disabled><input id="staleness-range" aria-label="Staleness limit slider" type="range" min="0" max="1000" step="1" value="3" disabled><p id="staleness-help">Waiting for server</p></div>
-          <div class="tuning-row"><label for="temperature-number">Outside / °C</label><input id="temperature-number" aria-label="Outside temperature in degrees Celsius" type="number" min="-20" max="30" step="any" value="12" required aria-describedby="temperature-help" disabled><input id="temperature" aria-label="Outside temperature slider" type="range" min="-20" max="30" step="any" value="12" aria-describedby="temperature-help" disabled><p id="temperature-help">Waiting for server</p></div>
-        </div>
-        <p id="scenario-watch" aria-label="What to watch">What to watch: Tune, then Start.</p>
-      </aside>
-      </section>
       <p id="scenario-caption" hidden>Custom</p>
       <section class="windshield" aria-label="World">
         <canvas id="road" aria-label="Snapshot-driven night motorway and rear-view mirror"></canvas>
@@ -304,6 +284,8 @@
         <div id="impact-stage"><img id="impact-image" alt="" hidden></div>
         <section id="collision-overlay" hidden role="status"><h2>COLLISION</h2><p id="collision-detail"></p></section>
       </section>
+      <section id="bottom-deck" aria-label="Dashboard and controls">
+      <div id="deck-content">
       <section class="cluster" aria-label="Decision instruments">
         <article class="instrument reflex">
           <h2 id="reflex-title">REFLEX</h2>
@@ -329,6 +311,27 @@
           <div id="freshness-track" class="freshness-track" role="img" aria-label="Observation age and staleness limit"><div id="freshness" hidden></div><div id="freshness-limit"></div></div>
           <div id="freshness-label-visible"></div>
         </article>
+      </section>
+      <section id="controls-band" aria-label="Controls">
+      <div class="controls-heading">
+        <button id="tuning-toggle" aria-controls="tuning-rail" aria-expanded="true">Controls [T]</button>
+        <p id="reset-help" hidden>Reset to change mode / hazard</p>
+        <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="stop" hidden>STOP</button><button id="reset" disabled>RESET</button></div>
+      </div>
+      <aside id="tuning-rail" aria-label="Live tuning controls">
+        <div class="tuning-fields">
+          <label>Scenario<select id="scenario" disabled><option value="custom">Custom</option></select></label>
+          <label>Mode<select id="mode" disabled><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
+          <label>Hazard<select id="hazard" disabled><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
+          <div class="tuning-row"><label for="speed-number">Speed / km/h</label><input id="speed-number" aria-label="Selected speed in km/h" type="number" min="50" max="130" step="any" value="90" required disabled><input id="speed" aria-label="Selected speed slider" type="range" min="50" max="130" step="any" value="90" disabled></div>
+          <div class="tuning-row"><label for="threshold-number">Damage threshold</label><input id="threshold-number" aria-label="Damage threshold" type="number" min="0" max="1" step="any" value="0.35" required disabled><input id="threshold" aria-label="Damage threshold slider" type="range" min="0" max="1" step="any" value="0.35" disabled></div>
+          <div class="tuning-row"><label for="staleness">Staleness / ticks</label><input id="staleness" aria-label="Staleness limit in ticks" aria-describedby="staleness-help" type="number" min="0" max="10" step="1" value="3" required disabled><input id="staleness-range" aria-label="Staleness limit slider" type="range" min="0" max="10" step="1" value="3" disabled><p id="staleness-help">Waiting for server</p></div>
+          <div class="tuning-row"><label for="temperature-number">Outside / °C</label><input id="temperature-number" aria-label="Outside temperature in degrees Celsius" type="number" min="-20" max="30" step="any" value="12" required aria-describedby="temperature-help" disabled><input id="temperature" aria-label="Outside temperature slider" type="range" min="-20" max="30" step="any" value="12" aria-describedby="temperature-help" disabled><p id="temperature-help">Waiting for server</p></div>
+        </div>
+        <p id="scenario-watch" aria-label="What to watch">What to watch: Tune, then Start.</p>
+      </aside>
+      </section>
+      </div>
       </section>
       <section id="drive-scoreboard" hidden aria-label="Drive scoreboard" role="status"><h2>DRIVE COMPLETE</h2><p id="drive-summary"></p><dl id="drive-score"></dl><p>Reset for another run.</p></section>
       <p id="model-error" role="alert"></p>

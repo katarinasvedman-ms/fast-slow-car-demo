@@ -52,11 +52,14 @@ uses the same world, SSE stream, controls, physics, and gate. Opening both pages
 does not create separate runs; Reset in either page resets the shared world.
 The **2D explainer** link returns to the original view.
 
-The windshield occupies the space above a roomy **Controls** band and three
-large dashboard cards, ordered **REFLEX | THE GATE | ADVISER**. The Adviser is
-widest; the dashboard grows with its content instead of using a 28% height cap.
+The windshield sits above three dashboard cards, ordered
+**REFLEX | THE GATE | ADVISER**, with the **Controls** band below the cards at
+the bottom. Cards and controls together occupy **at most 50% of viewport height**.
+The Adviser is widest. Compact spacing and proportional fitting keep the entire
+lower panel inside that budget as advice, window size or control visibility changes,
+without cropping the rationale or introducing main-view scrollbars.
 The band is open by default: Scenario, Mode, Hazard, then paired number inputs
-and sliders for speed, damage threshold, staleness and outside temperature.
+and sliders for speed, damage threshold, staleness (0-10 ticks) and outside temperature.
 The layout reserves separate rows for the windshield, controls and instruments,
 including on short wide windows; the connection, backend and tick badges stay
 together at the top right.
@@ -64,8 +67,8 @@ The named **Scenario** dropdown resets, applies settings, and waits for Start;
 it never starts a run. Editing a setting returns it to **Custom**.
 Details starts closed and contains the exact captured sensor
 input, full rationale, application/supersession messages and tick history.
-Controls have labels of at least 18 px. The Adviser shows its full rationale
-at 20 px or larger without an ellipsis, observed/arrived ticks, model latency
+Controls use 18 px base labels. The Adviser shows its full rationale
+at a 20 px base size without an ellipsis, observed/arrived ticks, model latency
 and the freshness bar. The verdict and speed remain large. Both gate lamps
 answer **FRESH ENOUGH? / WITHIN LIMITS?** with YES/NO; each real refusal detail
 is shown in words on the card, independently of the current temperature setting.

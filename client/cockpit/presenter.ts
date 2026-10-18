@@ -1,6 +1,16 @@
 import type { Control } from './controls.js';
 import { element } from './dash.js';
 
+export function fitBottomDeck(deck: HTMLElement, content: HTMLElement): void {
+  content.style.zoom = '1';
+  content.style.width = '100%';
+  const limit = Number.parseFloat(getComputedStyle(deck).maxHeight);
+  const scale = Math.min(1, limit / Math.max(1, content.getBoundingClientRect().height));
+  content.style.zoom = String(scale);
+  content.style.width = `${100 / scale}%`;
+  deck.style.height = `${Math.min(limit, content.getBoundingClientRect().height)}px`;
+}
+
 export function installPresenter(
   run: (commands: Control[]) => Promise<void>,
   start: () => void,
@@ -12,6 +22,19 @@ export function installPresenter(
   const detailsToggle = element('details-toggle');
   const rail = element('tuning-rail');
   const railToggle = element('tuning-toggle');
+  const deck = element('bottom-deck');
+  const deckContent = element('deck-content');
+  let fitFrame = 0;
+  const fit = () => {
+    fitFrame = 0;
+    fitBottomDeck(deck, deckContent);
+  };
+  const scheduleFit = () => {
+    if (!fitFrame) fitFrame = requestAnimationFrame(fit);
+  };
+  const resize = new ResizeObserver(scheduleFit);
+  resize.observe(deckContent);
+  window.addEventListener('resize', scheduleFit);
   let presenting = false;
   let collapsed = false;
   const showDetails = (show: boolean) => {
@@ -82,7 +105,11 @@ export function installPresenter(
   click(element('fullscreen'), () => { void fullscreen(); });
   document.addEventListener('keydown', onKey);
   layout();
+  fit();
   return () => {
+    cancelAnimationFrame(fitFrame);
+    resize.disconnect();
+    window.removeEventListener('resize', scheduleFit);
     document.removeEventListener('keydown', onKey);
     for (const remove of removers) remove();
   };

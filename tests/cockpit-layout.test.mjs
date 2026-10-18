@@ -6,6 +6,37 @@ import { mapSnapshot } from '../dist/client/cockpit/model.js';
 import { loadConfig } from '../dist/src/config.js';
 import { Simulation } from '../dist/src/simulation.js';
 import { fakeModels } from '../dist/tests/helpers.js';
+import { fitBottomDeck } from '../dist/client/cockpit/presenter.js';
+
+test('bottom deck fits cards and controls together within half the viewport and restores size when space returns', (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'getComputedStyle');
+  let limit = 380;
+  Object.defineProperty(globalThis, 'getComputedStyle', {
+    configurable: true, value: () => ({ maxHeight: `${limit}px` }),
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'getComputedStyle', original);
+    else delete globalThis.getComputedStyle;
+  });
+  const deck = { style: {} };
+  let naturalHeight = 500;
+  const content = {
+    style: {},
+    getBoundingClientRect: () => ({ height: naturalHeight * Number(content.style.zoom) }),
+  };
+  fitBottomDeck(deck, content);
+  assert.equal(Number(content.style.zoom), 0.76);
+  assert.ok(Number.parseFloat(deck.style.height) <= limit);
+  assert.ok(Math.abs(Number(content.style.zoom) * Number.parseFloat(content.style.width) - 100) < 1e-10);
+  limit = 540;
+  fitBottomDeck(deck, content);
+  assert.equal(content.style.zoom, '1');
+  assert.equal(content.style.width, '100%');
+  assert.equal(deck.style.height, '500px');
+  naturalHeight = 250;
+  fitBottomDeck(deck, content);
+  assert.equal(deck.style.height, '250px');
+});
 
 test('cockpit renders full advice, independent refusal details and both tuning inputs from snapshots', async (t) => {
   class Node {
@@ -86,6 +117,7 @@ test('cockpit renders full advice, independent refusal details and both tuning i
     }
   }
   assert.equal(nodes.get('staleness-help').textContent, '6 ticks = 2.4 s');
+  assert.equal(nodes.get('staleness-range').hidden, false);
   assert.equal(nodes.get('threshold-notch').style.transform, 'rotate(0deg)');
   assert.equal(nodes.get('selected-speed-marker').style.left, '87.5%');
   state.advice.gate = { allowed: true };
@@ -98,4 +130,13 @@ test('cockpit renders full advice, independent refusal details and both tuning i
     assert.equal(nodes.get(slider).disabled, false);
     assert.equal(nodes.get(number).disabled, false);
   }
+  state.settings.stalenessLimitTicks = 20;
+  renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('staleness').value, '20');
+  assert.equal(nodes.get('staleness-range').hidden, true);
+  assert.equal(nodes.get('staleness-help').textContent, '20 ticks = 8.0 s / above cockpit range 0-10');
+  state.settings.stalenessLimitTicks = 3;
+  renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('staleness-range').hidden, false);
+  assert.equal(nodes.get('staleness-range').value, '3');
 });

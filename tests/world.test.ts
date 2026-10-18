@@ -60,10 +60,39 @@ test('observations contain only derived sensors; public snapshots conceal truth 
   assert.match(text, /Lane 1: vehicle detected/);
   assert.match(text, /Lane 3: clear/);
   const view = publicWorld(world);
+  assert.equal(view.ambientTempC, 12);
+  const cold = { ...world, ambientTempC: -4 };
+  assert.equal(buildObservation(cold, 'ambiguous'), text);
+  assert.deepEqual(observeScene(cold, 'ambiguous'), observeScene(world, 'ambiguous'));
   assert.equal(view.identity, null);
   assert.equal('hazard' in view, false);
   assert.equal('adjacentLanesBlocked' in view, false);
   assert.equal(publicWorld({ ...world, outcome: 'braked' }).identity, 'elk');
+});
+
+test('neither model receives the trusted temperature or grip policy', async () => {
+  const inputs: string[] = [];
+  for (const temperature of [-4, 12]) {
+    const simulation = new Simulation(loadConfig({}), fakeModels({
+      fast: { name: 'Capture fast', async decide(observation) {
+        inputs.push(observation);
+        return { majorDamageRisk: 0.1, adjacentLaneClear: 0.9, latencyMs: 1 };
+      } },
+      slow: { name: 'Capture slow', advise(observation) {
+        inputs.push(observation);
+        return new Promise(() => {});
+      } },
+    }));
+    simulation.setTemperature(temperature);
+    simulation.start();
+    await flush();
+    simulation.dispose();
+  }
+  assert.equal(inputs.length, 4);
+  for (const observation of inputs) {
+    assert.equal(observation, inputs[0]);
+    assert.doesNotMatch(observation, /ambientTempC|temperature|°C|normal grip|frost risk|ice risk/i);
+  }
 });
 
 test('rendered traffic, clearance and contact descriptions share the observation source', () => {

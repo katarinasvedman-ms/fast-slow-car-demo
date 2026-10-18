@@ -1,11 +1,11 @@
-import type { Config } from './config.js';
+import type { SwerveLimit } from './policy.js';
 import type { ActionEnvelope, GateDecision, GateRefusal } from './types.js';
 
 export function evaluateGate(
   envelope: ActionEnvelope,
   currentTick: number,
   currentSpeedKmh: number,
-  policy: Pick<Config, 'stalenessLimitTicks' | 'swerveSpeedLimit'>,
+  policy: SwerveLimit & { stalenessLimitTicks: number; ambientTempC: number },
 ): GateDecision {
   const reasons: GateRefusal[] = [];
   const age = currentTick - envelope.observedAtTick;
@@ -18,7 +18,7 @@ export function evaluateGate(
   if (envelope.action === 'swerve' && currentSpeedKmh > policy.swerveSpeedLimit) {
     reasons.push({
       reason: 'prohibited_action',
-      detail: `Swerve at ${currentSpeedKmh.toFixed(1)} km/h exceeds ${policy.swerveSpeedLimit} km/h.`,
+      detail: `Swerve at ${currentSpeedKmh.toFixed(1)} km/h exceeds ${policy.swerveSpeedLimit} km/h limit for ${policy.swerveTier} (${policy.ambientTempC} °C).`,
     });
   }
   const [first, ...rest] = reasons;

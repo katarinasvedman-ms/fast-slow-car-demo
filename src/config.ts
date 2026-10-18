@@ -3,7 +3,11 @@ export interface Config {
   tickMs: number;
   tickBudgetMs: number;
   stalenessLimitTicks: number;
-  swerveSpeedLimit: number;
+  normalSwerveSpeedLimit: number;
+  frostSwerveSpeedLimit: number;
+  iceSwerveSpeedLimit: number;
+  frostRiskTempC: number;
+  iceRiskTempC: number;
   brakeDecelMps2: number;
   initialHazardDistanceM: number;
   stub: boolean;
@@ -12,6 +16,14 @@ export interface Config {
   fastDeployment: string;
   slowModel: string;
 }
+
+export const DEFAULT_SWERVE_POLICY = {
+  normalSwerveSpeedLimit: 110,
+  frostSwerveSpeedLimit: 70,
+  iceSwerveSpeedLimit: 40,
+  frostRiskTempC: 4,
+  iceRiskTempC: 0,
+};
 
 function numberSetting(
   env: NodeJS.ProcessEnv,
@@ -44,6 +56,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.STUB !== undefined && env.STUB !== '0' && env.STUB !== '1') {
     throw new Error('STUB must be 0 or 1.');
   }
+  const frostRiskTempC = numberSetting(env, 'FROST_RISK_TEMP_C', DEFAULT_SWERVE_POLICY.frostRiskTempC, -20, 30);
+  const iceRiskTempC = numberSetting(env, 'ICE_RISK_TEMP_C', DEFAULT_SWERVE_POLICY.iceRiskTempC, -20, 30);
+  if (iceRiskTempC >= frostRiskTempC) {
+    throw new Error('ICE_RISK_TEMP_C must be less than FROST_RISK_TEMP_C.');
+  }
   const foundryEndpoint = env.FOUNDRY_ENDPOINT?.trim() || null;
   if (foundryEndpoint) {
     const endpoint = new URL(foundryEndpoint);
@@ -56,7 +73,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     tickMs,
     tickBudgetMs,
     stalenessLimitTicks: numberSetting(env, 'STALENESS_LIMIT_TICKS', 3, 0, 1000, true),
-    swerveSpeedLimit: numberSetting(env, 'SWERVE_SPEED_LIMIT', 70, 0, 130),
+    normalSwerveSpeedLimit: numberSetting(env, 'SWERVE_SPEED_LIMIT_NORMAL', DEFAULT_SWERVE_POLICY.normalSwerveSpeedLimit, 0, 130),
+    frostSwerveSpeedLimit: numberSetting(env, 'SWERVE_SPEED_LIMIT_FROST', DEFAULT_SWERVE_POLICY.frostSwerveSpeedLimit, 0, 130),
+    iceSwerveSpeedLimit: numberSetting(env, 'SWERVE_SPEED_LIMIT_ICE', DEFAULT_SWERVE_POLICY.iceSwerveSpeedLimit, 0, 130),
+    frostRiskTempC,
+    iceRiskTempC,
     brakeDecelMps2: numberSetting(env, 'BRAKE_DECEL_MPS2', 1.5, 0.01, 100),
     initialHazardDistanceM: numberSetting(env, 'INITIAL_HAZARD_DISTANCE_M', 500, 0.01, 100_000),
     stub: env.STUB === '1',

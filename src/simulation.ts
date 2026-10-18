@@ -1,7 +1,7 @@
 import type { Config } from './config.js';
 import { buildObservation, observeScene } from './observation.js';
 import { evaluateGate } from './gate.js';
-import { fastAction } from './policy.js';
+import { fastAction, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
 import type { ModelServices } from './models/live.js';
 import type {
   ActionEnvelope, AppliedAction, GateDecision, GateRecord, HazardVariant, Mode,
@@ -69,7 +69,8 @@ export class Simulation {
         initialHazardDistanceM: this.config.initialHazardDistanceM,
         brakeDecelMps2: this.config.brakeDecelMps2,
         stalenessLimitTicks: this.stalenessLimitTicks,
-        swerveSpeedLimit: this.config.swerveSpeedLimit,
+        swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
+        swerveTier: swerveTierFor(this.world.ambientTempC, this.config),
       },
       log: structuredClone(this.log),
       gate: structuredClone(this.gate),
@@ -95,7 +96,7 @@ export class Simulation {
     this.stop();
     this.cancelRequests();
     this.models.reset?.();
-    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant);
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant, this.world.ambientTempC);
     this.log = [];
     this.gate = [];
     this.fast = this.emptyFast();
@@ -120,6 +121,14 @@ export class Simulation {
     this.publish();
   }
 
+  setTemperature(ambientTempC: number): void {
+    if (!Number.isFinite(ambientTempC) || ambientTempC < -20 || ambientTempC > 30) {
+      throw new Error('Temperature must be between -20 and 30 °C.');
+    }
+    this.world = { ...this.world, ambientTempC };
+    this.publish();
+  }
+
   setStalenessLimit(ticks: number): void {
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 1000) {
       throw new Error('Staleness limit must be an integer between 0 and 1000 ticks.');
@@ -137,7 +146,7 @@ export class Simulation {
   setHazard(variant: HazardVariant): void {
     if (this.timer !== undefined || this.world.tick !== 0) throw new Error('Reset before changing the hazard.');
     this.hazardVariant = variant;
-    this.world = createWorld(this.config, this.world.selectedSpeedKmh, variant);
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, variant, this.world.ambientTempC);
     this.publish();
   }
 
@@ -357,7 +366,9 @@ export class Simulation {
     const current = { ...envelope, speedKmh: this.world.speedKmh };
     const decision = evaluateGate(current, this.world.tick, this.world.speedKmh, {
       stalenessLimitTicks: this.stalenessLimitTicks,
-      swerveSpeedLimit: this.config.swerveSpeedLimit,
+      swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
+      swerveTier: swerveTierFor(this.world.ambientTempC, this.config),
+      ambientTempC: this.world.ambientTempC,
     });
     const record = { phase, atTick: this.world.tick, envelope: current, decision };
     this.gate.unshift(record);

@@ -19,6 +19,7 @@ function hazardControl(): HTMLSelectElement {
 }
 
 const speed = inputControl('speed');
+const temperature = inputControl('temperature');
 const staleness = inputControl('staleness');
 const hazard = hazardControl();
 const connection = element('connection');
@@ -27,6 +28,7 @@ const errorMessage = element('error');
 function render(snapshot: Snapshot): void {
   const world = snapshot.world;
   if (document.activeElement !== speed) speed.value = String(world.selectedSpeedKmh);
+  if (document.activeElement !== temperature) temperature.value = String(world.ambientTempC);
   hazard.value = snapshot.hazardVariant;
   hazard.disabled = snapshot.started || world.tick !== 0;
   element('start').toggleAttribute('disabled', snapshot.started || world.outcome !== 'running');
@@ -178,6 +180,8 @@ function render(snapshot: Snapshot): void {
     `Observation age ${limit} is allowed; age ${limit + 1} is stale. Changes affect future gate checks; reset to retry advice already refused.`;
   element('gate-rules').textContent =
     `Refuse age > ${snapshot.settings.stalenessLimitTicks} ticks; independently refuse swerve > ${snapshot.settings.swerveSpeedLimit} km/h.`;
+  element('temperature-status').textContent =
+    `Outside ${world.ambientTempC} °C / ${snapshot.settings.swerveTier} / active swerve limit ${snapshot.settings.swerveSpeedLimit} km/h.`;
   const records = snapshot.gate.map((record) => {
     const row = document.createElement('li');
     row.className = record.decision.allowed ? 'allowed' : 'refused';
@@ -227,6 +231,9 @@ speed.addEventListener('input', () => {
   element('speed-value').textContent = `${speed.value} km/h selected`;
 });
 speed.addEventListener('change', () => { void control('speed', Number(speed.value)); });
+temperature.addEventListener('change', () => {
+  if (temperature.reportValidity()) void control('temperature', temperature.valueAsNumber);
+});
 hazard.addEventListener('change', () => { void control('hazard', hazard.value); });
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
   button.addEventListener('click', () => { void control('mode', button.dataset.mode); });

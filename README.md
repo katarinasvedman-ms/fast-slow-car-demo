@@ -41,6 +41,77 @@ loading is used; shell variables override `.env`. The STUB badge identifies
 recorded output. Slow replay is held for five simulation ticks by default;
 the displayed model latency is the original recorded call, not an added live delay.
 
+## Night Drive cockpit
+
+Open `http://127.0.0.1:3000/cockpit.html?clawpilotTheme=dark`, or follow
+**Night Drive cockpit** from the original page. This separate first-person view
+uses the same world, SSE stream, controls, physics, and gate. Opening both pages
+does not create separate runs; Reset in either page resets the shared world.
+The **2D explainer** link returns to the original view.
+
+The road fills the viewport behind a translucent dashboard capped at 28% of its
+height. Presenter mode starts with **Details** closed; the visible 1-4 buttons
+still select moments. Details contains the control strip, exact captured sensor
+input, full rationale, application/supersession messages and tick history.
+Main-view text is at least 28 px, with larger speed and gate verdicts, and does
+not scroll. The Adviser shows one clipped rationale sentence, not a text feed.
+
+The windshield uses locally served Three.js **0.186.1**, MIT licensed; the
+licence is in `public\vendor\THREE-LICENSE.txt`. `npm run build` copies the pinned
+browser modules into `public\vendor` and compiled cockpit code into the ignored
+`public\cockpit-app` directory. No bundler, CDN, framework, extra model calls,
+or downloaded 3D models are used. Once installed and built, STUB mode needs no
+network access. A WebGL failure is reported explicitly; the dashboard remains
+usable and the 2D view remains available.
+
+**REFLEX** shows damage probability, the actual threshold notch, accepted-result
+latency and deadline misses. **THE GATE** shows the latest slow freshness and
+permission checks independently, including both reasons when refused.
+**ADVISER** shows elapsed ticks, not an invented completion percentage.
+During reassessment the previous recommendation and its gate/application result
+remain labelled as history; the freshness bar tracks the current observation.
+Allowed advice is not presented as an applied action until the snapshot says so.
+
+| Control | Action |
+|---|---|
+| Space / Start | Start the world; enable modest synthesised audio after interaction |
+| R / Reset | Cancel the run and return to idle |
+| Details / Close / Escape | Show or hide controls, sensor input and full decision details |
+| P / Present | Switch between the clean presenter view and open details |
+| M / Sound | Toggle mute |
+| F / Fullscreen | Enter or leave fullscreen |
+| 1 | Fast only, Elk, 90 km/h, threshold 0.35 |
+| 2 | Fast only, Ambiguous, 90 km/h; repeat to alternate threshold 0.35 / 0.50 |
+| 3 | Async + gated, Elk, 90 km/h, -4 °C, staleness 3 |
+| 4 | Async + gated, Elk, 90 km/h, 12 °C, staleness 6 |
+
+Presets reset first and apply the existing commands serially, then wait for
+**Start**. Mode and hazard remain locked during a run. Shortcuts do not steal
+keystrokes from editable controls; focused buttons retain normal keyboard use.
+Captions live in `client\cockpit\controls.ts`. Use the control strip in Details for Blocking
+mode, Small animal, or other speed/temperature/threshold/staleness settings.
+
+Before an outcome the cockpit shows only the sensor contact, even with an
+explicit Elk selection. Animal identity is revealed only from `world.identity`.
+The labelled thermal/radar overlay can show contacts beyond the headlights and
+fog; the terminal identity overlay does not move a distant animal closer.
+Cockpit-only `*-cutout.png` assets remove the supplied images' white matte;
+the original 2D assets are unchanged. Revealed world cutouts use headlight-reactive
+materials at the reported range and fade in over 300 ms. The separate labelled
+outcome callout scales with range, but is not a claim of headlight visibility.
+Road displacement follows reported distance, lane motion follows reported turn
+progress, and smoothing only trails known state. Traffic retains its world-backed
+fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.
+Sound is synthesised locally and can be muted before Start.
+
+Rehearse presets 1-4 at projector resolution in STUB mode, including the second
+press of 2, both independent gate refusals, reset while thinking, and the
+three-tick lane change. Two refusals at 90 km/h are not guaranteed after braking
+reduces actual speed; likewise, later fast braking may resume after an allowed
+turn. A preset never forces a result. Check performance on the venue laptop;
+the implementation caps rendering pixel ratio and avoids shadows, but does not
+promise a frame rate on untested hardware.
+
 ## Road and model input
 
 The blue vehicle in lane 1 is the observed vehicle **20 m behind** the pink ego
@@ -64,10 +135,15 @@ These are audience-only previews selected from the dropdown; models still receiv
 sensor text only. Ambiguous keeps the unidentified contact marker until an outcome
 reveals its identity.
 
-## Rehearse the three moments
+## Rehearse the four moments
 
-Use **Reset** before changing mode or hazard. Speed, threshold, and staleness
-limit stay live. The staleness input is in the **Deterministic gate** card;
+Use **Reset** before changing mode or hazard. Speed, outside temperature,
+threshold, and staleness limit stay live. Temperature starts at **12 °C** and
+is editable beside speed (-20..30 °C); temperature and staleness survive Reset.
+The **Deterministic gate** card shows current temperature, grip tier and active
+swerve limit. This trusted vehicle-sensor value is used only by the gate:
+neither model receives it, and recorded fixtures are unchanged.
+The staleness input is in the **Deterministic gate** card;
 its explanation converts ticks to simulation time using the current clock.
 Braking is revisable: a later gate-allowed action can release an earlier brake.
 A newly applied fast action wins a same-tick conflict. Reaffirming an already
@@ -77,22 +153,29 @@ engaged action does not change its original application tick.
 |---|---|
 | Confident elk | Fast only, Elk, 90 km/h, threshold 0.35. Risk is high and braking fires. The recorded cold call also visibly demonstrates one deadline default. |
 | Ambiguous hazard | Fast only, Ambiguous, threshold 0.35. Recorded risk is 0.4073 (displayed 0.41): brake, even though it is below 0.5. Reset and use threshold 0.5 to contrast continuing. |
-| Late advice | Async + gated, Elk, 90 km/h. At five ticks in stub mode, the recorded swerve to lane 3 is refused for both `stale_advice` and `prohibited_action`. |
+| Late advice | Async + gated, Elk, 90 km/h, -4 °C, threshold 0.35, staleness 3. At five ticks in STUB mode, the recorded swerve is refused for both `stale_advice` and `prohibited_action` (ice risk, limit 40 km/h). |
+| Supersession | Async + gated, Elk, 90 km/h, 12 °C, threshold 0.35, staleness 6. The first recorded slow swerve is allowed (normal grip, limit 110 km/h), releases the fast brake and starts lane change 2 -> 3. |
 
-For the independent-rule variant, reset and start at 60 km/h: the same late
-advice is refused for staleness alone. That is a valid result, not a broken run.
+For a **temperature-only contrast**, use staleness **6** in both runs and change
+only temperature: **-4 °C** refuses for speed alone, **12 °C** allows the same
+advice. The two table presets deliberately also contrast staleness 3 versus 6;
+they are not a one-variable experiment.
+For the independent stale-only variant, keep **12 °C** and staleness **3**.
+That is a valid result, not a broken run.
 Tune `BRAKE_DECEL_MPS2` and `INITIAL_HAZARD_DISTANCE_M` against real latency during
 rehearsal; do not fake the speed or refusal reasons to force both to fire.
 
 To demonstrate **slow advice superseding a fast brake** in recorded replay,
-reset and choose **Async + gated**, **Elk**, threshold **0.35**, and a fresh-enough
-staleness limit (**6** for the default five-tick replay). At **60 km/h**, the
+reset and choose **Async + gated**, **Elk**, **90 km/h**, **12 °C**, threshold
+**0.35**, and staleness **6** for the default five-tick replay. In normal grip
+the active limit is **110 km/h**, so the
 captured slow swerve releases the earlier brake and starts a **three-tick**
 lane change from 2 to 3. The highlighted supersession line, allowed application
 record with `supersedes #M`, brief road marker, lane readout, and persistent slow
-card make the change visible. Reset and change **only speed to 90 km/h**:
-the first advice is prohibited and the car keeps braking. Continuous reassessment
-can then permit a later turn once actual speed has fallen below the limit; a
+card make the change visible. Reset and change **only temperature to -4 °C**,
+leaving staleness **6**: the first advice is prohibited (ice risk, **40 km/h**)
+and the car keeps braking. Continuous reassessment
+can then permit a later turn once actual speed has fallen below the current limit; a
 90 km/h starting setting no longer guarantees an in-lane stop. With limit **3**,
 every default five-tick replay assessment remains stale.
 The replay reuses the documented captured elk recommendation on each assessment,
@@ -110,6 +193,13 @@ The independent speed rule and same-tick fast priority still apply. Changes affe
 future gate checks, not advice already refused; a new assessment uses a genuinely
 fresh observation rather than retrying the old action. The chosen
 limit survives Reset; server restart restores `STALENESS_LIMIT_TICKS`.
+Temperature changes affect future proposal/application checks only; they do not
+retry refused advice, cancel an applied turn, alter braking physics or change
+same-tick priority. Both checkpoints resolve the current sensor value, not the
+temperature at model observation. The three default tiers are **normal grip**
+(above 4 °C, 110 km/h), **frost risk** (above 0 through 4 °C, 70 km/h), and
+**ice risk** (0 °C or below, 40 km/h). Fractional temperatures are accepted;
+0.5 °C is frost risk. Equality with the speed limit is permitted.
 
 **Blocking** keeps the world moving but suppresses fast actions and deadline
 braking while advice is pending. **Async + gated** keeps fast actions active.
@@ -145,7 +235,11 @@ past a contact. The Ambiguous contact's identity is revealed only after an outco
 | `BRAKE_DECEL_MPS2` | `1.5` | Positive gradual braking deceleration |
 | `INITIAL_HAZARD_DISTANCE_M` | `500` | Initial contact distance |
 | `STALENESS_LIMIT_TICKS` | `3` | Initial live-editable UI limit; refuse observation age strictly greater than this |
-| `SWERVE_SPEED_LIMIT` | `70` | Refuse swerving at actual speed strictly greater than this |
+| `SWERVE_SPEED_LIMIT_NORMAL` | `110` | Normal-grip swerve limit in km/h (0..130) |
+| `SWERVE_SPEED_LIMIT_FROST` | `70` | Frost-risk swerve limit in km/h (0..130) |
+| `SWERVE_SPEED_LIMIT_ICE` | `40` | Ice-risk swerve limit in km/h (0..130) |
+| `FROST_RISK_TEMP_C` | `4` | At or below this temperature, use frost risk unless already ice risk (-20..30 °C) |
+| `ICE_RISK_TEMP_C` | `0` | At or below this temperature, use ice risk; must be below `FROST_RISK_TEMP_C` (-20..30 °C) |
 | `STUB_SLOW_DELAY_TICKS` | `5` | Advice age at arrival in recorded replay only |
 | `PORT` | `3000` | Loopback HTTP port |
 | `BENCHMARK_NETWORK` | required for probe | Label the connection used for timing calibration |

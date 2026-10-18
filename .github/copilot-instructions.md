@@ -30,7 +30,8 @@ websockets, frontend framework, or bundler.
 `src\simulation.ts` owns the fixed interval, asynchronous request generations,
 deadlines, mode behavior, arbitration, and reset. `src\world.ts` owns physical
 advancement/outcomes. `src\observation.ts` is the model-input boundary.
-`src\policy.ts` maps fast probabilities to actions; `src\gate.ts` contains only
+`src\policy.ts` maps fast probabilities to actions and resolves temperature
+tiers/limits; `src\gate.ts` contains only
 the two deterministic rules so it remains readable during a talk.
 
 `src\models\live.ts` calls Foundry SystemOne for the two predicates and Foundry
@@ -52,7 +53,10 @@ are authoritative; do not apply potentially older HTTP-control responses.
   live adapter's shared 50 ms request spacing and sequential paced calibration.
   Do not run stress tests or concurrent live probes. Use mocks for rate tests.
 - Model input is derived sensor text only. Never serialize ground-truth `kind`
-  or `adjacentLanesBlocked` to either model. Public world projection conceals
+  or `adjacentLanesBlocked` to either model. Outside `ambientTempC` is a trusted
+  vehicle sensor for the deterministic gate only: never add temperature, grip
+  tier or its speed limit to observations or `observeScene`. Fixtures stay unchanged.
+  Public world projection conceals
   hazard identity until a terminal outcome. The UI may preview moose/squirrel
   images from the explicit dropdown selection for the audience; Ambiguous stays
   unidentified until an outcome. Never send those images to either model.
@@ -82,8 +86,17 @@ are authoritative; do not apply potentially older HTTP-control responses.
   `STUB_SLOW_DELAY_TICKS`; age is measured from observation, not arrival.
 - Every envelope is checked at proposal and application. Refusal is an ordered
   nonempty list: age > staleness limit, then swerve at actual speed > speed
-  limit. Recheck current tick/speed at application; evaluate both rules even
+  limit resolved from CURRENT outside temperature. Default tiers: >4 °C normal
+  grip / 110 km/h; >0 through 4 °C frost risk / 70 km/h; <=0 °C ice risk / 40 km/h.
+  Configure via `SWERVE_SPEED_LIMIT_NORMAL`, `SWERVE_SPEED_LIMIT_FROST`,
+  `SWERVE_SPEED_LIMIT_ICE`, `FROST_RISK_TEMP_C` and `ICE_RISK_TEMP_C`.
+  Recheck current tick/speed/temperature at application; evaluate both rules even
   when one already refuses. Confidence/rationale cannot override the gate.
+- Outside temperature defaults to 12 °C. The `temperature` command accepts a
+  finite number -20..30 °C, is live-editable beside speed and survives Reset and
+  hazard changes. Edits affect future checks only, never retry refused advice,
+  change physical motion or override same-tick fast priority. Show current
+  temperature, tier and active limit in both gate views.
 - Staleness is live-editable through the gate card and `staleness` control
   command (integer 0..1000 ticks), initialized from `STALENESS_LIMIT_TICKS`.
   Preserve the chosen limit across Reset; changes affect future checks and do
@@ -102,9 +115,14 @@ are authoritative; do not apply potentially older HTTP-control responses.
   the slow card's applied message. A later brake does not teleport/cancel a turn.
 - Braking is gradual. Tune `BRAKE_DECEL_MPS2` and `INITIAL_HAZARD_DISTANCE_M`
   through environment variables, not code changes. Stale-only refusal after
-  slowing below 70 is a valid run, not a failure to display both reasons.
+  slowing below the current temperature-resolved limit is a valid run, not a
+  failure to display both reasons.
   Continuous reassessment may permit a later turn after an initial high-speed
   refusal; a 90 km/h starting setting does not guarantee an in-lane stop.
+- Rehearse late advice at 90 km/h, -4 °C, staleness 3 (both refusals), and
+  supersession at 90 km/h, 12 °C, staleness 6 (allowed, brake released, turn 2 -> 3).
+  To isolate temperature, hold staleness 6 in both runs: ice refuses speed,
+  normal grip permits. Never claim the 3-versus-6 presets differ only in temperature.
 - Collision/completed passage freeze motion/actions; pending advice can still
   age and be checked. A stopped `braked` state may be revised by pending allowed
   advice, without inventing acceleration. `continued` means completed passage,
@@ -129,7 +147,7 @@ as an unbiased benchmark. Preserve the real cold-call latency in offline replay
 so missed-deadline handling remains demonstrable. Replay indices reset per run.
 
 Use focused Node tests with controlled promises/clock seams; no extra framework.
-Rehearse the three moments in README, all modes, and one/two independent gate
+Rehearse the four moments in README, all modes, and one/two independent gate
 refusals through Playwright. Keep inline SVG, large projected type, and the
 reference pitch's `--cp-*` variables/typeface/card treatment. Preserve provenance
 and toy-world limitations in README.

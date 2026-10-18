@@ -72,6 +72,7 @@
 </head>
 <body>
   <h1>Fast <span>/</span> Slow</h1>
+  <p class="muted"><a href="/cockpit.html?clawpilotTheme=dark" style="color: var(--cp-accent)">Night Drive cockpit</a></p>
   <div class="teach"><span>The world does not wait.</span><span>Advice expires.</span><span>Agreement is not authority.</span></div>
   <div class="mode-row">
     <span id="connection" class="badge" role="status">Connecting...</span>
@@ -86,6 +87,7 @@
     </div>
     <div class="controls">
       <label>Speed <input id="speed" type="range" min="50" max="130" value="90" aria-label="Selected speed"><span id="speed-value">90 km/h selected</span></label>
+      <label>Outside temperature (°C)<input id="temperature" type="number" min="-20" max="30" step="any" value="12" required aria-label="Outside temperature"></label>
       <label>Hazard <select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
       <div class="mode-row"><button id="start" class="primary">Start</button><button id="reset">Reset</button></div>
     </div>
@@ -160,12 +162,14 @@
       <p id="advice-error" role="alert"></p>
       <details>
         <summary>Show slow advice changing the lane</summary>
-        <p class="muted">For recorded replay: Reset, choose Async + gated and Elk, keep damage threshold 0.35, and use a fresh-enough staleness limit (6 for the default five-tick advice). Start at 60 km/h: the first slow advice releases the earlier fast brake and begins a three-tick move to lane 3. Reset and change only speed to 90 km/h: the first advice is prohibited and braking continues. A later fresh assessment can permit the turn once actual speed drops below the limit. Limit 3 keeps the five-tick replay stale on every assessment.</p>
+        <p class="muted">For recorded replay: Reset, choose Async + gated and Elk, speed 90 km/h and damage threshold 0.35. At -4 °C (ice risk, limit 40 km/h) and staleness 3, the first slow advice is refused for both age and speed. At 12 °C (normal grip, limit 110 km/h) and staleness 6, it releases the earlier brake and begins a three-tick move to lane 3. To isolate temperature, keep staleness 6 in both runs and change only temperature: -4 °C refuses speed; 12 °C allows it.</p>
         <p class="muted">Replay reuses a captured elk recommendation on each assessment; it does not adapt to the new observation, so a lane-3 target after reaching lane 3 is reported as invalid. Live timing and recommendations vary. Both gate checkpoints use current state. Raising the age limit never bypasses the independent speed rule. Later fast actions may brake again without cancelling a lane change already underway.</p>
       </details>
     </section>
     <section class="card" aria-label="Deterministic gate">
       <h2>Deterministic gate</h2>
+      <p id="temperature-status"></p>
+      <p class="muted">Outside temperature is a trusted vehicle sensor used only by the gate, not sent to either model. Live edits affect future checks; Reset preserves the value.</p>
       <label>Staleness limit (ticks)<input id="staleness" type="number" min="0" max="1000" step="1" value="3" required aria-describedby="staleness-help staleness-choice"></label>
       <p id="staleness-help" class="muted"></p>
       <p id="staleness-choice" class="muted"><strong>Which value?</strong> Use <strong>3</strong> to demonstrate strict rejection of late advice. Use <strong>6</strong> for the default five-tick recorded advice: it leaves one tick of headroom. Larger limits accept older observations. For live reasoning, check the displayed observation age; 6 is not a guarantee of acceptance.</p>

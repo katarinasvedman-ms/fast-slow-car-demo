@@ -60,6 +60,12 @@ export function createApp(simulation: Simulation): express.Express {
         return;
       }
       simulation.setSpeed(body.value);
+    } else if (command === 'temperature' && 'value' in body && typeof body.value === 'number') {
+      if (!Number.isFinite(body.value) || body.value < -20 || body.value > 30) {
+        response.status(400).json({ error: 'Temperature must be between -20 and 30 °C.' });
+        return;
+      }
+      simulation.setTemperature(body.value);
     } else if (
       command === 'hazard' && 'value' in body &&
       (body.value === 'elk' || body.value === 'small_animal' || body.value === 'ambiguous')

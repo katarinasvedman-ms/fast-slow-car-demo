@@ -3,6 +3,7 @@ export type HazardVariant = 'elk' | 'small_animal' | 'ambiguous';
 export type Outcome = 'running' | 'braked' | 'swerved' | 'continued' | 'collision';
 export type Action = 'swerve' | 'brake' | 'continue';
 export type Mode = 'fast_only' | 'blocking' | 'async_gated';
+export type SwerveTier = 'normal grip' | 'frost risk' | 'ice risk';
 
 export interface FastResult {
   majorDamageRisk: number | null;
@@ -66,6 +67,7 @@ export interface WorldState {
   tick: number;
   speedKmh: number;
   selectedSpeedKmh: number;
+  ambientTempC: number;
   carLane: Lane;
   laneChange: LaneChange | null;
   hazard: { lane: Lane; distanceM: number; kind: 'elk' | 'small_animal' };
@@ -81,6 +83,7 @@ export interface WorldView {
   tick: number;
   speedKmh: number;
   selectedSpeedKmh: number;
+  ambientTempC: number;
   carLane: Lane;
   laneChange: LaneChange | null;
   hazardLane: Lane;
@@ -128,6 +131,7 @@ export interface Snapshot {
     brakeDecelMps2: number;
     stalenessLimitTicks: number;
     swerveSpeedLimit: number;
+    swerveTier: SwerveTier;
   };
   log: TickEntry[];
   gate: GateRecord[];

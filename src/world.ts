@@ -5,11 +5,13 @@ export function createWorld(
   config: Config,
   selectedSpeedKmh = 90,
   hazardVariant: HazardVariant = 'elk',
+  ambientTempC = 12,
 ): WorldState {
   return {
     tick: 0,
     speedKmh: selectedSpeedKmh,
     selectedSpeedKmh,
+    ambientTempC,
     carLane: 2,
     laneChange: null,
     hazard: {
@@ -102,6 +104,7 @@ export function publicWorld(world: WorldState): WorldView {
     tick: world.tick,
     speedKmh: world.speedKmh,
     selectedSpeedKmh: world.selectedSpeedKmh,
+    ambientTempC: world.ambientTempC,
     carLane: world.carLane,
     laneChange: world.laneChange ? { ...world.laneChange } : null,
     hazardLane: world.hazard.lane,

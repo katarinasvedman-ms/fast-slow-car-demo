@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Night Drive / Fast + Slow</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+      --cp-night: #090d13;
+      --cp-asphalt: #252a32;
+      --cp-shoulder: #131b24;
+      --cp-horizon: #738198;
+      --cp-road-line: #b9c0c6;
+      --cp-headlight: #fff1cf;
+      --cp-traffic: #93c5fd;
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cp-night); color: var(--cp-text); font-size: 28px; overflow: hidden; }
+    button, select, input { font: inherit; }
+    button, select, input[type=number] { color: var(--cp-text); background: var(--cp-surface-soft); border: 1px solid var(--cp-border-strong); border-radius: 0.625rem; padding: 8px 12px; }
+    button { cursor: pointer; font-weight: 600; }
+    button:hover { border-color: var(--cp-accent); }
+    button:disabled, select:disabled { opacity: 0.5; cursor: default; }
+    button[aria-pressed=true], .primary { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    a { color: var(--cp-link); }
+    :focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    #cockpit { position: relative; height: 100svh; overflow: hidden; background: var(--cp-night); }
+    #road { position: fixed; width: 100vw; height: 100svh; inset: 0; display: block; }
+    #collision-flash { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; background: var(--cp-headlight); }
+    .content { position: relative; z-index: 1; height: 100%; }
+    header, .top-status, .row, .toolbar, .presets { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    header { position: fixed; inset: 24px 32px auto; justify-content: space-between; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: 0.12em; font-weight: 650; color: var(--cp-road-line); }
+    h1 span { color: var(--cp-accent); }
+    .eyebrow { font-size: 28px; color: var(--cp-text-soft); font-weight: 600; }
+    .badge { border: 1px solid var(--cp-border); background: var(--cp-panel); padding: 5px 10px; border-radius: 0.625rem; font-size: 28px; }
+    [data-state=good] { color: var(--cp-success); }
+    [data-state=bad] { color: var(--cp-danger); }
+    [data-state=warning] { color: var(--cp-warning); }
+    #error, #model-error { position: fixed; top: 88px; right: 32px; max-width: 42vw; z-index: 4; color: var(--cp-danger); background: var(--cp-panel-strong); padding: 8px; border-radius: 0.625rem; }
+    #model-error { top: 160px; }
+    #connection { position: fixed; top: 88px; left: 32px; }
+    #error:empty, #model-error:empty { display: none; }
+    .windshield { position: fixed; inset: 0 0 28svh; pointer-events: none; }
+    #mirror { position: absolute; width: 280px; height: 80px; left: calc(50% - 140px); top: 24px; border: 7px solid var(--cp-surface); border-radius: 0.625rem; box-shadow: 0 0 0 1px var(--cp-border-strong); }
+    #mirror-label { position: absolute; top: 112px; width: 100%; text-align: center; font-size: 28px; color: var(--cp-road-line); }
+    .sensor { position: absolute; left: 50%; top: 58%; transform: translate(-50%, -25%); text-align: center; width: 560px; color: var(--cp-headlight); }
+    .sensor.revealed { left: auto; right: 32px; top: 160px; transform: none; width: 460px; display: flex; align-items: center; gap: 16px; text-align: left; }
+    .sensor.revealed > div { flex: 1; min-width: 0; }
+    .sensor.revealed #reveal-image { flex: 0 0 auto; margin: 0; }
+    #thermal-contact { width: var(--contact-size, 22px); height: var(--contact-size, 22px); margin: 0 auto 8px; border: 2px solid var(--cp-warning); border-radius: 48% 55% 38% 40%; background: var(--cp-warning); filter: blur(3px); opacity: 0.8; }
+    #thermal-contact.uncertain { animation: shimmer 1.8s ease-in-out infinite alternate; }
+    #distance { display: block; font-size: 40px; font-variant-numeric: tabular-nums; font-weight: 600; line-height: 1.1; }
+    #contact-name { font-size: 28px; }
+    #identity-note { color: var(--cp-road-line); font-size: 28px; }
+    #reveal-image { width: var(--reveal-size, 140px); height: var(--reveal-size, 140px); object-fit: contain; margin: 0 auto 8px; display: block; filter: brightness(var(--reveal-light, 1)); }
+    #reveal-image.revealing { animation: reveal-in 300ms ease-out both; }
+    .sensor.revealed #identity-note { background: var(--cp-panel); border-radius: 0.625rem; padding: 4px; }
+    .drive-status { position: absolute; top: 144px; left: 32px; border-left: 2px solid var(--cp-accent); padding-left: 16px; max-width: 360px; }
+    .speed-number { font-size: clamp(80px, 6vw, 112px); font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; color: var(--cp-road-line); }
+    #speed-label, #surface { color: var(--cp-road-line); }
+    #motion-status { font-size: 28px; color: var(--cp-headlight); font-weight: 650; margin-top: 12px; }
+    .braking #motion-status { color: var(--cp-danger); }
+    .cluster { position: fixed; inset: auto 0 0; height: 28svh; display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 0; padding: 8px 20px; background: var(--cp-panel); border-top: 1px solid var(--cp-border-strong); backdrop-filter: blur(12px); border-radius: 16px 16px 0 0; }
+    .instrument { padding: 0 20px; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+    .instrument + .instrument { border-left: 1px solid var(--cp-border-strong); }
+    .instrument h2 { font-size: 28px; letter-spacing: 0.1em; line-height: 1; margin: 0 0 4px; }
+    .reflex h2 { color: var(--cp-accent); }
+    .reflex-body { display: flex; align-items: center; gap: 16px; }
+    .dial { position: relative; width: 126px; height: 118px; flex: 0 0 126px; }
+    .dial-face { position: absolute; width: 112px; height: 112px; top: 0; left: 7px; border: 8px solid var(--cp-border); border-bottom-color: var(--cp-panel); border-radius: 50%; }
+    .dial-needle, .dial-notch { position: absolute; left: 61px; top: 6px; height: 50px; width: 4px; transform-origin: 2px 50px; transform: rotate(-120deg); }
+    .dial-needle { background: linear-gradient(var(--cp-accent) 0 75%, transparent 75%); }
+    .dial-notch { background: linear-gradient(var(--cp-warning) 0 20%, transparent 20%); width: 6px; left: 60px; transform-origin: 3px 50px; }
+    #risk-value { position: absolute; top: 76px; width: 100%; text-align: center; font-size: 36px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    #threshold-label { color: var(--cp-warning); font-size: 28px; font-weight: 650; white-space: nowrap; }
+    .reflex-metrics { display: grid; gap: 4px; font-size: 28px; color: var(--cp-text-soft); }
+    #deadline { color: var(--cp-warning); }
+    .gate { text-align: center; position: relative; }
+    .gate h2 { color: var(--cp-text); }
+    .gate-heading { display: flex; justify-content: center; align-items: baseline; gap: 12px; }
+    #gate-history { color: var(--cp-text-soft); }
+    #gate-verdict { font-size: clamp(48px, 4.2vw, 80px); font-weight: 750; line-height: 1; margin-bottom: 4px; }
+    .lamps { display: grid; gap: 0; justify-content: center; }
+    .lamp { display: grid; grid-template-columns: 148px 20px 136px; align-items: center; gap: 12px; text-align: left; line-height: 1; }
+    .lamp-light { display: block; width: 20px; height: 20px; border: 2px solid var(--cp-border); background: var(--cp-surface-soft); border-radius: 50%; }
+    .lamp[data-state=good] .lamp-light { background: var(--cp-success); border-color: var(--cp-success); }
+    .lamp[data-state=bad] .lamp-light { background: var(--cp-danger); border-color: var(--cp-danger); }
+    .lamp strong, .lamp small { font-size: 28px; }
+    .lamp strong { color: var(--cp-text); font-weight: 500; }
+    .lamp small { color: inherit; font-weight: 650; white-space: nowrap; }
+    #temperature-status { font-size: 28px; font-weight: 600; }
+    #gate-temperature { font-size: 28px; line-height: 1.2; color: var(--cp-text-soft); white-space: nowrap; margin-top: 4px; }
+    .wire { height: 2px; background: var(--cp-border-strong); position: relative; margin: 24px 30px; }
+    #envelope { position: absolute; right: 0; top: -12px; color: var(--cp-accent); background: var(--cp-surface); padding: 0 8px; }
+    .adviser-title { display: flex; justify-content: space-between; align-items: center; }
+    #thinking-ring { width: 30px; height: 30px; border: 3px solid var(--cp-border); border-radius: 50%; }
+    #thinking-ring.thinking { border-top-color: var(--cp-accent); animation: spin 1.4s linear infinite; }
+    #advice-action { font-size: clamp(32px, 2.2vw, 44px); font-weight: 650; margin: 0 0 4px; line-height: 1.2; white-space: nowrap; }
+    #advice-history { font-size: 28px; color: var(--cp-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #advice-rationale { font-size: 28px; line-height: 1.2; margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .freshness-track { height: 5px; background: var(--cp-border); margin-top: 8px; }
+    #freshness { height: 100%; background: var(--cp-success); }
+    #freshness[data-state=bad] { background: var(--cp-danger); }
+    #freshness[data-state=warning] { background: var(--cp-warning); }
+    #supersession { color: var(--cp-success); }
+    .drive-buttons, .presets { position: fixed; bottom: calc(28svh + 16px); }
+    .drive-buttons { right: 32px; }
+    .presets { left: 32px; gap: 8px; }
+    .presets button { min-width: 52px; }
+    #steering-wheel { position: fixed; bottom: calc(28svh + 12px); left: calc(50% - 70px); width: 140px; height: 90px; color: var(--cp-road-line); transform-origin: center; }
+    #detail-panel { position: fixed; z-index: 5; inset: 88px 24px 24px auto; width: min(980px, calc(100vw - 48px)); padding: 24px; overflow-y: auto; overscroll-behavior: contain; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
+    .detail-heading { display: flex; justify-content: space-between; align-items: center; }
+    .detail-heading h2 { margin: 0; font-size: 32px; }
+    .toolbar { align-items: end; gap: 20px; margin: 24px 0; }
+    label { display: grid; gap: 4px; color: var(--cp-text-soft); font-size: 28px; }
+    input[type=number] { width: 150px; }
+    #detail-panel h3 { font-size: 28px; color: var(--cp-accent); margin: 28px 0 8px; }
+    #detail-panel p { margin: 12px 0; }
+    #detail-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 28px/1.4 Consolas, "Courier New", Courier, monospace; }
+    #detail-panel .badge { display: inline-block; margin: 12px 0; }
+    footer { color: var(--cp-text-soft); padding-top: 24px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes shimmer { to { opacity: 0.5; border-radius: 60% 30% 55% 40%; } }
+    @keyframes reveal-in { from { opacity: 0; } to { opacity: 1; } }
+    @media (min-height: 900px) { .dial { zoom: 1.35; } .instrument h2 { margin-bottom: 16px; } .lamps { gap: 8px; } }
+    @media (max-width: 1400px) { .instrument { padding: 0 16px; } .reflex-body { gap: 10px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+  <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+</head>
+<body class="presenting">
+  <main id="cockpit">
+    <canvas id="road" aria-label="Snapshot-driven night motorway and rear-view mirror"></canvas>
+    <div id="collision-flash" aria-hidden="true"></div>
+    <div class="content">
+      <header>
+        <h1>NIGHT <span>DRIVE</span></h1>
+        <div class="top-status"><span id="backend" class="badge">CONNECTING</span><button id="details-toggle" aria-expanded="false" aria-controls="detail-panel">Details</button><a href="/" aria-label="2D explainer">2D</a></div>
+      </header>
+      <span id="connection" class="badge" role="status">CONNECTING</span>
+      <p id="error" role="alert"></p>
+      <section class="windshield" aria-label="World">
+        <div id="mirror" aria-label="Rear-view mirror"></div><div id="mirror-label"></div>
+        <div class="drive-status"><div id="speed-value" class="speed-number">--</div><div id="speed-label" class="eyebrow">KM/H</div><div id="motion-status">WAITING FOR SERVER</div></div>
+        <div id="sensor" class="sensor">
+          <div id="thermal-contact" aria-hidden="true"></div><img id="reveal-image" alt="" hidden>
+          <div><strong id="distance">-- m</strong><div id="contact-name">THERMAL / RADAR CONTACT</div><div id="identity-note">Sensor overlay / not headlight visibility</div></div>
+        </div>
+      </section>
+      <section class="cluster" aria-label="Decision instruments">
+        <article class="instrument reflex">
+          <h2>REFLEX</h2>
+          <div class="reflex-body"><div class="dial" role="img" aria-label="Major damage risk with braking threshold notch"><div class="dial-face"></div><div id="threshold-notch" class="dial-notch"></div><div id="risk-needle" class="dial-needle"></div><strong id="risk-value">--</strong></div>
+          <div class="reflex-metrics"><div id="threshold-label">Notch 0.35</div><span id="fast-latency">-- ms</span><span id="misses">0 MISSED</span></div></div>
+        </article>
+        <article class="instrument gate">
+          <div class="gate-heading"><h2>THE GATE</h2><span id="gate-history"></span></div>
+          <div id="gate-verdict" role="status">WAITING</div>
+          <div class="lamps">
+            <div id="fresh-lamp" class="lamp" data-state="off"><strong>FRESH?</strong><span class="lamp-light" aria-hidden="true"></span><small id="fresh-value">--</small></div>
+            <div id="permitted-lamp" class="lamp" data-state="off"><strong>ALLOWED?</strong><span class="lamp-light" aria-hidden="true"></span><small id="permitted-value">--</small></div>
+          </div>
+          <div id="gate-temperature"></div>
+        </article>
+        <article class="instrument adviser">
+          <div class="adviser-title"><h2>ADVISER</h2><div id="thinking-ring" aria-hidden="true"></div></div>
+          <div id="advice-action">NO ADVICE YET</div><div id="advice-history">Awaiting start</div>
+          <p id="advice-rationale">The world keeps moving while reasoning works.</p>
+          <div class="freshness-track"><div id="freshness"></div></div>
+        </article>
+      </section>
+      <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="reset" disabled>RESET</button></div>
+        <svg id="steering-wheel" viewBox="0 0 160 100" aria-label="Steering wheel follows reported lane-change progress"><path d="M22 94a60 60 0 1 1 116 0" fill="none" stroke="currentColor" stroke-width="13"/><path d="M25 46L80 67L135 46M80 67V98" fill="none" stroke="currentColor" stroke-width="12"/><circle cx="80" cy="62" r="18" fill="var(--cp-surface)" stroke="currentColor" stroke-width="6"/></svg>
+      <div class="presets" role="group" aria-label="Rehearsal moments"><button data-preset="1" aria-pressed="false" title="1 / Reflex" aria-label="1 / Reflex">1</button><button data-preset="2" aria-pressed="false" title="2 / Ambiguous" aria-label="2 / Ambiguous">2</button><button data-preset="3" aria-pressed="false" title="3 / Refused" aria-label="3 / Refused">3</button><button data-preset="4" aria-pressed="false" title="4 / Allowed" aria-label="4 / Allowed">4</button></div>
+      <p id="model-error" role="alert"></p>
+      <aside id="detail-panel" hidden aria-label="Controls, sensor input and decision details">
+      <div class="detail-heading"><h2>Controls &amp; details</h2><button id="details-close">Close</button></div>
+      <div class="row"><button id="mute" aria-pressed="false">SOUND ON [M]</button><button id="presenter" aria-pressed="true">PRESENT [P]</button><button id="fullscreen">FULLSCREEN [F]</button><span id="tick" class="badge">TICK --</span></div>
+      <p id="caption">The world does not wait. Advice expires. Agreement is not authority.</p>
+      <section class="controls" aria-label="Presenter controls">
+        <div class="toolbar">
+          <label>Mode<select id="mode"><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
+          <label>Hazard<select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
+          <label>Selected km/h<input id="speed" type="number" min="50" max="130" step="1" value="90" required></label>
+          <label>Outside °C<input id="temperature" type="number" min="-20" max="30" step="any" value="12" required></label>
+          <label>Damage threshold<input id="threshold" type="number" min="0" max="1" step="0.01" value="0.35" required></label>
+          <label>Staleness / ticks<input id="staleness" type="number" min="0" max="1000" step="1" value="3" required aria-describedby="staleness-help"></label>
+        </div>
+        <div id="staleness-help"></div>
+      </section>
+      <h3>World / trusted vehicle sensor</h3><div id="temperature-status"></div><div id="surface"></div><div id="lane-status"></div>
+      <aside id="outcome-card" hidden role="status"><strong id="outcome-title"></strong><p id="outcome-detail"></p></aside>
+      <h3>Application / not just permission</h3><div id="application" role="status">No action proposed.</div><div id="supersession"></div>
+      <h3>Deterministic gate / both rules</h3><div id="gate-context"></div><div class="wire"><span id="envelope" aria-hidden="true">&#9993;</span></div>
+      <div id="delivery">NO ADVICE DELIVERY YET</div><div id="gate-rule"></div><p id="gate-reasons"></p>
+      <h3>Adviser / full assessment</h3><div id="advice-status"></div><p id="advice-rationale-full"></p><div id="advice-stamp"></div><div id="freshness-label"></div>
+      <h3>Reflex / accepted result and deadlines</h3><div id="fast-model"></div><div id="fast-status"></div><div id="clear-value"></div><div id="deadline" role="status"></div><div id="fast-stamp"></div>
+      <section class="debug" aria-label="Sensor input, teaching notes and tick history"><h3>Exact sensor input</h3>
+        <p id="contact-description"></p><strong id="observation-stamp"></strong><pre id="observation"></pre>
+        <p>A missed major hazard costs more than unnecessary braking. The notch is deliberately below 0.5. Unknown or failed fast decisions default to brake. In Blocking mode fast actions and deadline defaults are suppressed while advice is pending, not physical motion.</p>
+        <p>Staleness 3 rejects the default five-tick replay. Limit 6 permits its age, not its speed: the independent limit follows trusted outside temperature (normal grip, frost risk, ice risk). Temperature is never sent to either model. New same-tick fast actions win. Refused advice changes nothing. A later brake does not cancel a turn already underway.</p>
+        <p>Recorded responses are real synthetic-input captures. Ambiguous samples were curated for the 0.35 versus 0.50 contrast. Slow replay repeats a captured recommendation, not adaptive reasoning. Timing and live results vary.</p>
+        <pre id="tick-log"></pre>
+      </section>
+      <footer><span>TOY WORLD / NOT A DRIVING SYSTEM / NO SAFETY GUARANTEE</span><span>SPACE start / R reset / P present / 1-4 presets / M mute / F fullscreen</span><span>One shared world across both views.</span></footer>
+      </aside>
+    </div>
+  </main>
+  <script type="module" src="/cockpit-app/main.js"></script>
+</body>
+</html>

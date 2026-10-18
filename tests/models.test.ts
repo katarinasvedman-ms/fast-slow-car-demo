@@ -47,6 +47,7 @@ test('actual offline replay produces a missed deadline and five-tick independent
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   const simulation = new Simulation(loadConfig({ STUB: '1' }), models, () => Date.now());
   context.after(() => simulation.dispose());
+  simulation.setTemperature(-4);
   simulation.start();
   await flush();
   for (let ms = 0; ms < 2240; ms += 20) { context.mock.timers.tick(20); await flush(); }
@@ -88,6 +89,47 @@ test('recorded slow advice changes lanes with age limit six instead of being ref
   }
 });
 
+test('recorded temperature rehearsals refuse both rules in ice and release the brake in normal grip', async (context) => {
+  context.mock.method(globalThis, 'fetch', () => { throw new Error('No network permitted.'); });
+  const models = await createStubModels();
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  let rationale: string | undefined;
+  for (const scenario of [
+    { temperature: -4, staleness: 3, reasons: ['stale_advice', 'prohibited_action'] },
+    { temperature: -4, staleness: 6, reasons: ['prohibited_action'] },
+    { temperature: 12, staleness: 6, reasons: [] },
+  ]) {
+    const simulation = new Simulation(loadConfig({ STUB: '1' }), models, () => Date.now());
+    context.after(() => simulation.dispose());
+    simulation.reset();
+    simulation.setTemperature(scenario.temperature);
+    simulation.setStalenessLimit(scenario.staleness);
+    simulation.start();
+    await flush();
+    for (let ms = 0; ms < 2280; ms += 20) { context.mock.timers.tick(20); await flush(); }
+    const atAdvice = simulation.snapshot();
+    assert.equal(atAdvice.world.selectedSpeedKmh, 90);
+    assert.equal(atAdvice.advice.data?.arrivedAtTick, 5);
+    const decision = atAdvice.advice.gate;
+    assert.ok(decision);
+    assert.deepEqual(decision.allowed ? [] : decision.reasons.map((reason) => reason.reason), scenario.reasons);
+    if (rationale === undefined) rationale = atAdvice.advice.data?.rationale;
+    else assert.equal(atAdvice.advice.data?.rationale, rationale);
+    if (scenario.reasons.length === 0) {
+      assert.equal(atAdvice.world.braking, false);
+      assert.equal(atAdvice.world.laneChange?.toLane, 3);
+      assert.match(atAdvice.advice.application ?? '', /superseded fast brake at tick 0/);
+      assert.match(atAdvice.log.find((entry) => entry.supersession)?.detail ?? '', /lane 2 -> 3.*brake released/);
+      for (let ms = 0; ms < 1200; ms += 20) { context.mock.timers.tick(20); await flush(); }
+      assert.equal(simulation.snapshot().world.carLane, 3);
+    } else {
+      assert.equal(atAdvice.world.braking, true);
+      assert.equal(atAdvice.world.laneChange, null);
+    }
+    simulation.dispose();
+  }
+});
+
 test('recorded reasoning is initially prohibited at 90 but fresh reassessment can turn after braking below the limit', async (context) => {
   context.mock.method(globalThis, 'fetch', () => { throw new Error('No network permitted.'); });
   let rationale: string | undefined;
@@ -99,6 +141,7 @@ test('recorded reasoning is initially prohibited at 90 but fresh reassessment ca
       scenario.after(() => simulation.dispose());
       simulation.setStalenessLimit(6);
       simulation.setSpeed(speed);
+      simulation.setTemperature(3);
       simulation.start();
       await flush();
       for (let ms = 0; ms < 2280; ms += 20) { scenario.mock.timers.tick(20); await flush(); }

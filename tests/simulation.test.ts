@@ -68,6 +68,7 @@ test('async advice shows both refusals or stale-only based on current speed, wit
       fast: { name: 'Brake fast', decide: async () => brake },
       slow: { name: 'Pending slow', advise: () => pending.promise },
     }), () => Date.now());
+    simulation.setTemperature(3);
     simulation.start();
     await flush();
     for (let i = 0; i < 4; i += 1) { context.mock.timers.tick(400); await flush(); }
@@ -97,6 +98,7 @@ test('live staleness changes allow age six but refuse age seven and still enforc
     }), () => Date.now());
     context.after(() => simulation.dispose());
     simulation.setSpeed(scenario.speed);
+    simulation.setTemperature(3);
     simulation.start();
     await flush();
     for (let i = 0; i < scenario.age; i += 1) { context.mock.timers.tick(400); await flush(); }
@@ -384,6 +386,7 @@ test('later slow advice releases an earlier brake only when allowed, with proven
     }), () => Date.now());
     context.after(() => simulation.dispose());
     simulation.setSpeed(speed);
+    simulation.setTemperature(3);
     simulation.start();
     await flush();
     for (let i = 0; i < 2; i += 1) { context.mock.timers.tick(400); await flush(); }
@@ -435,6 +438,7 @@ test('supersession checks actual application speed rather than the speed observe
     slow: { name: 'Pending advice', advise: (observation) => { captured = observation; return pending.promise; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
+  simulation.setTemperature(3);
   simulation.start();
   await flush();
   for (let i = 0; i < 2; i += 1) { context.mock.timers.tick(400); await flush(); }
@@ -445,6 +449,72 @@ test('supersession checks actual application speed rather than the speed observe
   assert.deepEqual(simulation.snapshot().advice.gate, { allowed: true });
   assert.equal(simulation.snapshot().world.braking, false);
   assert.equal(simulation.snapshot().world.laneChange?.toLane, 3);
+});
+
+test('temperature is resolved at proposal and application, and edits do not retry refused advice', async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  for (const scenario of [
+    { observed: -4, proposed: 12, applied: 12, allowed: true },
+    { observed: 12, proposed: 12, applied: -4, allowed: false },
+    { observed: 12, proposed: -4, applied: 12, allowed: false },
+  ]) {
+    const slow = deferred<SlowResult>();
+    const fast = deferred<FastResult>();
+    let calls = 0;
+    const simulation = new Simulation(loadConfig({}), fakeModels({
+      fast: { name: 'Brake then pending', decide: () => ++calls === 1 ? Promise.resolve(brake) : fast.promise },
+      slow: { name: 'Pending slow', advise: () => slow.promise },
+    }), () => Date.now());
+    context.after(() => simulation.dispose());
+    simulation.setTemperature(scenario.observed);
+    simulation.start();
+    await flush();
+    context.mock.timers.tick(400);
+    await flush();
+    simulation.setTemperature(scenario.proposed);
+    slow.resolve(swerve);
+    await flush();
+    const proposed = simulation.snapshot();
+    assert.equal(proposed.gate[0]?.phase, 'proposal');
+    assert.equal(proposed.gate[0]?.decision.allowed, scenario.proposed === 12);
+    assert.equal(proposed.advice.application, null);
+    simulation.setTemperature(scenario.applied);
+    assert.deepEqual(simulation.snapshot().gate, proposed.gate);
+    fast.resolve(brake);
+    await flush();
+    const result = simulation.snapshot();
+    const application = result.gate.find((item) => item.envelope.source === 'slow' && item.phase === 'application');
+    assert.equal(application?.decision.allowed, scenario.applied === 12);
+    assert.equal(result.world.braking, !scenario.allowed);
+    assert.equal(result.world.laneChange?.toLane ?? null, scenario.allowed ? 3 : null);
+    if (scenario.applied === -4) {
+      assert.ok(application && !application.decision.allowed);
+      assert.match(application.decision.reasons[0].detail, /40 km\/h limit for ice risk \(-4 °C\)/);
+    }
+    if (!scenario.allowed) {
+      const advice = result.advice;
+      simulation.setTemperature(12);
+      assert.deepEqual(simulation.snapshot().advice, advice);
+      assert.equal(simulation.snapshot().world.laneChange, null);
+    }
+    simulation.dispose();
+  }
+});
+
+test('temperature control validates sensor range, survives reset and hazard changes, and changes no physical state', () => {
+  const simulation = new Simulation(loadConfig({}), fakeModels());
+  assert.equal(simulation.snapshot().world.ambientTempC, 12);
+  for (const temperature of [NaN, Infinity, -21, 31]) assert.throws(() => simulation.setTemperature(temperature));
+  const before = simulation.snapshot();
+  simulation.setTemperature(-4);
+  assert.deepEqual(simulation.snapshot().world, { ...before.world, ambientTempC: -4 });
+  assert.deepEqual(simulation.snapshot().gate, before.gate);
+  assert.equal(simulation.snapshot().settings.swerveSpeedLimit, 40);
+  assert.equal(simulation.snapshot().settings.swerveTier, 'ice risk');
+  simulation.reset();
+  simulation.setHazard('small_animal');
+  assert.equal(simulation.snapshot().world.ambientTempC, -4);
+  simulation.dispose();
 });
 
 test('a later fast action may release a brake and a subsequent new brake may supersede it again', async (context) => {

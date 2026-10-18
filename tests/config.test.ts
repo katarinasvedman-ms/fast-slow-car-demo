@@ -11,6 +11,13 @@ test('config rejects invalid timing, physical values, and endpoint schemes', () 
     { BRAKE_DECEL_MPS2: '0' },
     { INITIAL_HAZARD_DISTANCE_M: '-1' },
     { STALENESS_LIMIT_TICKS: '1.5' },
+    { SWERVE_SPEED_LIMIT_NORMAL: '131' },
+    { SWERVE_SPEED_LIMIT_FROST: 'NaN' },
+    { SWERVE_SPEED_LIMIT_ICE: '-1' },
+    { FROST_RISK_TEMP_C: '31' },
+    { ICE_RISK_TEMP_C: '-21' },
+    { FROST_RISK_TEMP_C: '0', ICE_RISK_TEMP_C: '0' },
+    { FROST_RISK_TEMP_C: '-1', ICE_RISK_TEMP_C: '1' },
     { FOUNDRY_ENDPOINT: 'http://localhost' },
     { STUB: 'true' },
   ]) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mapSnapshot, EventTracker, parseSnapshot } from '../client/cockpit/model.js';
-import { createControls, presetCommands } from '../client/cockpit/controls.js';
+import { mapSnapshot, EventTracker, parseSnapshot, freshnessPositions } from '../client/cockpit/model.js';
+import { createControls, scenarioCommands, scenarios, ScenarioSelection, sendControl } from '../client/cockpit/controls.js';
 import type { Control } from '../client/cockpit/controls.js';
 import { loadConfig } from '../src/config.js';
 import { Simulation } from '../src/simulation.js';
@@ -112,22 +112,77 @@ test('presenter serializes preset controls, waits before Start, and stops a fail
     sent.push(command);
     if (sent.length === 1) await pending.promise;
   }, (value) => busy.push(value));
-  const preset = run(presetCommands(4));
+  const preset = run(scenarioCommands('allowed-swerve'));
   const start = run([{ command: 'start' }]);
   await Promise.resolve();
   assert.deepEqual(sent, [{ command: 'reset' }]);
   pending.resolve();
   await Promise.all([preset, start]);
-  assert.deepEqual(sent, [...presetCommands(4), { command: 'start' }]);
+  assert.deepEqual(sent, [...scenarioCommands('allowed-swerve'), { command: 'start' }]);
   assert.deepEqual(busy, [true, false, true, false]);
-  assert.deepEqual(presetCommands(2, true).find((command) => command.command === 'threshold'), { command: 'threshold', value: 0.5 });
+  for (const scenario of scenarios) assert.ok(!scenarioCommands(scenario.id).some((command) => command.command === 'start'));
+  assert.deepEqual(scenarioCommands('custom'), []);
   const failed: Control[] = [];
   const runFailure = createControls(async (command) => {
     failed.push(command);
     if (command.command === 'mode') throw new Error('Control rejected.');
   }, () => {});
-  await assert.rejects(runFailure(presetCommands(3)), /Control rejected/);
+  await assert.rejects(runFailure(scenarioCommands('late-advice-refused')), /Control rejected/);
   assert.deepEqual(failed.map((command) => command.command), ['reset', 'run', 'mode']);
   await runFailure([{ command: 'reset' }]);
   assert.equal(failed.length, 4);
+});
+
+test('scenario labels wait for matching authoritative settings and return to Custom after an edit', () => {
+  const selection = new ScenarioSelection();
+  const state = snapshot();
+  assert.equal(selection.update(state), 'custom');
+  selection.choose('allowed-swerve');
+  assert.equal(selection.update(state), 'custom');
+  state.settings.stalenessLimitTicks = 6;
+  assert.equal(selection.update(state), 'allowed-swerve');
+  state.world.speedKmh = 30;
+  state.world.tick = 20;
+  assert.equal(selection.update(state), 'allowed-swerve');
+  state.world.selectedSpeedKmh = 100;
+  assert.equal(selection.update(state), 'custom');
+  selection.choose('allowed-swerve');
+  selection.custom();
+  state.world.selectedSpeedKmh = 90;
+  assert.equal(selection.update(state), 'custom');
+});
+
+test('freshness age and editable limit share a truthful tick scale, including zero and large limits', () => {
+  assert.deepEqual(freshnessPositions(null, 3), { axisMax: 10, agePercent: 0, limitPercent: 30 });
+  assert.deepEqual(freshnessPositions(5, 6), { axisMax: 10, agePercent: 50, limitPercent: 60 });
+  assert.deepEqual(freshnessPositions(5, 3), { axisMax: 10, agePercent: 50, limitPercent: 30 });
+  assert.deepEqual(freshnessPositions(1, 0), { axisMax: 10, agePercent: 10, limitPercent: 0 });
+  assert.deepEqual(freshnessPositions(1200, 1000), { axisMax: 1200, agePercent: 100, limitPercent: 1000 / 1200 * 100 });
+});
+
+test('cockpit resets before retrying reset-required controls, ignores successful response snapshots, and surfaces other failures', async () => {
+  const sent: Control[] = [];
+  const request: typeof fetch = async (_url, init) => {
+    const command = JSON.parse(String(init?.body)) as Control;
+    sent.push(command);
+    return sent.length === 1
+      ? Response.json({ error: 'Reset before changing mode.' }, { status: 409 })
+      : new Response('This successful response must not be parsed as a snapshot.');
+  };
+  await sendControl({ command: 'mode', value: 'blocking' }, request);
+  assert.deepEqual(sent, [
+    { command: 'mode', value: 'blocking' }, { command: 'reset' }, { command: 'mode', value: 'blocking' },
+  ]);
+  let calls = 0;
+  await assert.rejects(sendControl({ command: 'hazard', value: 'elk' }, async () => {
+    calls++;
+    return Response.json({ error: 'Free drive is live-only.' }, { status: 409 });
+  }), /live-only/);
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(sendControl({ command: 'mode', value: 'blocking' }, async () => {
+    calls++;
+    return Response.json({ error: 'Reset before changing mode.' }, { status: 409 });
+  }), /Reset before changing/);
+  assert.equal(calls, 2);
 });

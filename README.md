@@ -53,8 +53,11 @@ does not create separate runs; Reset in either page resets the shared world.
 The **2D explainer** link returns to the original view.
 
 The road fills the viewport behind a translucent dashboard capped at 28% of its
-height. Presenter mode starts with **Details** closed; the visible 1-4 buttons
-still select moments. Details contains the control strip, exact captured sensor
+height. A narrow **live tuning rail** is visible on the left by default, with
+speed, damage-threshold and temperature sliders and a staleness stepper.
+The named **Scenario** dropdown resets, applies settings, and waits for Start;
+it never starts a run. Editing a setting returns it to **Custom**.
+Details starts closed and contains the exact captured sensor
 input, full rationale, application/supersession messages and tick history.
 Main-view text is at least 28 px, with larger speed and gate verdicts, and does
 not scroll. The Adviser shows one clipped rationale sentence, not a text feed.
@@ -72,28 +75,39 @@ latency and deadline misses. **THE GATE** shows the latest slow freshness and
 permission checks independently, including both reasons when refused.
 **ADVISER** shows elapsed ticks, not an invented completion percentage.
 During reassessment the previous recommendation and its gate/application result
-remain labelled as history; the freshness bar tracks the current observation.
+remain labelled as history; the freshness bar shows elapsed observation age
+and a movable amber staleness-limit marker on the same tick scale (at least
+0-10 ticks, expanded for larger ages or limits). The rail converts the limit
+to seconds. Temperature shows the actual grip tier and swerve limit; selected
+speed has its own marker beside the actual-speed display.
 Allowed advice is not presented as an applied action until the snapshot says so.
 
 | Control | Action |
 |---|---|
 | Space / Start | Start the world; enable modest synthesised audio after interaction |
 | R / Reset | Cancel the run and return to idle |
-| Details / Close / Escape | Show or hide controls, sensor input and full decision details |
-| P / Present | Switch between the clean presenter view and open details |
+| Details / Close / Escape | Show or hide sensor input and full decision details |
+| T / Tuning tab | Collapse or reopen the live tuning rail |
+| P / Present | Hide the rail and show a scenario-name caption; press again to restore the rail |
 | M / Sound | Toggle mute |
 | F / Fullscreen | Enter or leave fullscreen |
-| 1 | Fast only, Elk, 90 km/h, threshold 0.35 |
-| 2 | Fast only, Ambiguous, 90 km/h; repeat to alternate threshold 0.35 / 0.50 |
-| 3 | Async + gated, Elk, 90 km/h, -4 °C, staleness 3 |
-| 4 | Async + gated, Elk, 90 km/h, 12 °C, staleness 6 |
-| Free drive / Stop | Select live-only continuous episodes / end with a scoreboard |
+| Confident elk | Fast only, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
+| Ambiguous hazard | Fast only, Ambiguous, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
+| Late advice refused | Async + gated, Elk, 90 km/h, threshold 0.35, -4 °C, staleness 3 |
+| Allowed swerve | Async + gated, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 6 |
+| Free drive (Details) / Stop | Select live-only continuous episodes / end with a scoreboard |
 
 Presets reset first and apply the existing commands serially, then wait for
-**Start**. Mode and hazard remain locked during a run. Shortcuts do not steal
+**Start**. Mode and hazard remain locked until Reset, with a **Reset to change**
+hint. Slider values, instrument markers and scenario labels follow authoritative
+SSE snapshots, not potentially older control-response bodies. A reset-required
+mode/hazard response triggers Reset before one retry; other errors remain explicit.
+Shortcuts do not steal
 keystrokes from editable controls; focused buttons retain normal keyboard use.
-Captions live in `client\cockpit\controls.ts`. Use the control strip in Details for Blocking
-mode, Small animal, or other speed/temperature/threshold/staleness settings.
+The single scenario/settings/description table lives in `client\cockpit\controls.ts`.
+Use the rail for Blocking mode, Small animal, or other tuning settings.
+The old numbered buttons and 1-4 shortcuts are removed from the cockpit only;
+the 2D page is unchanged.
 
 Before an outcome the cockpit shows only the sensor contact, even with an
 explicit Elk selection. Animal identity is revealed only from `world.identity`.
@@ -108,10 +122,10 @@ progress, and smoothing only trails known state. Traffic retains its world-backe
 fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.
 Sound is synthesised locally and can be muted before Start.
 
-Rehearse presets 1-4 at projector resolution in STUB mode, including the second
-press of 2, both independent gate refusals, reset while thinking, and the
-three-tick lane change and recovery to selected speed after clearing the contact's
-lane. Two refusals at 90 km/h are not guaranteed after braking
+Rehearse each named scenario at projector resolution in STUB mode. Include an
+Ambiguous threshold edit to 0.50, both independent gate refusals, reset while
+thinking, and the three-tick lane change and recovery to selected speed after
+clearing the contact's lane. Two refusals at 90 km/h are not guaranteed after braking
 reduces actual speed. A preset never forces a result. Check performance on the venue laptop;
 the implementation caps rendering pixel ratio and avoids shadows, but does not
 promise a frame rate on untested hardware.

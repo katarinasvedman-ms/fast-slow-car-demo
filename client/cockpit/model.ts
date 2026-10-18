@@ -19,6 +19,13 @@ export type CockpitEvent =
   | { type: 'gate'; record: GateRecord }
   | { type: 'outcome'; outcome: Snapshot['world']['outcome'] };
 
+export function freshnessPositions(age: number | null, limit: number): {
+  axisMax: number; agePercent: number; limitPercent: number;
+} {
+  const axisMax = Math.max(10, Math.ceil(Math.max(age ?? 0, limit) / 10) * 10);
+  return { axisMax, agePercent: (age ?? 0) / axisMax * 100, limitPercent: limit / axisMax * 100 };
+}
+
 export function mapSnapshot(snapshot: Snapshot): CockpitView {
   const { world, advice, settings } = snapshot;
   const age = advice.observedAtTick === null ? null : Math.max(0, world.tick - advice.observedAtTick);

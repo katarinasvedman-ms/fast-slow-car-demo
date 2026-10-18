@@ -89,7 +89,7 @@
     #road { position: fixed; width: 100vw; height: 100svh; inset: 0; display: block; }
     #collision-flash { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; background: var(--cp-headlight); }
     .content { position: relative; z-index: 1; height: 100%; }
-    header, .top-status, .row, .toolbar, .presets { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    header, .top-status, .row, .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     header { position: fixed; inset: 24px 32px auto; justify-content: space-between; }
     h1 { margin: 0; font-size: 28px; letter-spacing: 0.12em; font-weight: 650; color: var(--cp-road-line); }
     h1 span { color: var(--cp-accent); }
@@ -167,15 +167,48 @@
     #advice-action { font-size: clamp(32px, 2.2vw, 44px); font-weight: 650; margin: 0 0 4px; line-height: 1.2; white-space: nowrap; }
     #advice-history { font-size: 28px; color: var(--cp-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #advice-rationale { font-size: 28px; line-height: 1.2; margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .freshness-track { height: 5px; background: var(--cp-border); margin-top: 8px; }
+    .freshness-track { height: 12px; position: relative; background: var(--cp-border); margin-top: 8px; }
+    #freshness-limit { position: absolute; top: -3px; bottom: -3px; width: 4px; background: var(--cp-warning); transform: translateX(-50%); }
     #freshness { height: 100%; background: var(--cp-success); }
     #freshness[data-state=bad] { background: var(--cp-danger); }
     #freshness[data-state=warning] { background: var(--cp-warning); }
     #supersession { color: var(--cp-success); }
-    .drive-buttons, .presets { position: fixed; bottom: calc(28svh + 16px); }
+    .drive-buttons { position: fixed; bottom: calc(28svh + 16px); }
     .drive-buttons { right: 32px; }
-    .presets { left: 32px; gap: 8px; }
-    .presets button { min-width: 52px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    #tuning-rail { position: fixed; z-index: 3; top: 8px; left: 0; width: 320px; max-height: calc(72svh - 24px); padding: 10px; background: var(--cp-panel); border: 1px solid var(--cp-border-strong); border-radius: 0 16px 16px 0; overflow-y: auto; }
+    #tuning-rail, .tuning-fields { display: grid; gap: 4px; }
+    #tuning-rail label { color: var(--cp-text); }
+    #tuning-rail select { width: 100%; min-width: 0; padding: 4px 6px; height: 42px; }
+    #scenario-watch, #staleness-help, #temperature-help, #reset-help { margin: 0; font-size: 28px; line-height: 34px; white-space: nowrap; }
+    #scenario-watch { overflow: hidden; text-overflow: ellipsis; color: var(--cp-text-soft); }
+    .tuning-row { display: grid; grid-template-columns: 174px minmax(0, 1fr); gap: 8px; min-height: 38px; align-items: center; }
+    .tuning-row > span { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+    .tuning-row input[type=range] { appearance: none; width: 100%; min-width: 0; margin: 0; background: transparent; height: 32px; cursor: pointer; }
+    .tuning-row input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--cp-border-strong); border-radius: 6px; }
+    .tuning-row input[type=range]::-webkit-slider-thumb { appearance: none; width: 28px; height: 28px; margin-top: -11px; border: 2px solid var(--cp-accent-fg); border-radius: 50%; background: var(--cp-accent); }
+    .tuning-row input[type=range]::-moz-range-track { height: 6px; background: var(--cp-border-strong); border-radius: 6px; }
+    .tuning-row input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 2px solid var(--cp-accent-fg); border-radius: 50%; background: var(--cp-accent); }
+    .tuning-select { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: center; }
+    .mode-select { grid-template-columns: 72px minmax(0, 1fr); }
+    .staleness-row { display: flex; justify-content: space-between; align-items: center; min-height: 38px; }
+    .stepper { display: flex; gap: 4px; align-items: center; }
+    .stepper button { padding: 0; width: 32px; height: 36px; line-height: 1; }
+    .stepper input[type=number] { width: 64px; padding: 0; height: 36px; text-align: center; appearance: textfield; }
+    .stepper input::-webkit-inner-spin-button { appearance: none; }
+    #temperature-help { color: var(--cp-text-soft); }
+    #reset-help { color: var(--cp-warning); }
+    #tuning-toggle { position: fixed; z-index: 3; left: 320px; top: 8px; writing-mode: vertical-rl; padding: 8px 0; width: 36px; font-size: 28px; border-radius: 0 10px 10px 0; }
+    .rail-hidden #tuning-toggle { left: 0; top: 184px; }
+    #scenario-caption { position: fixed; left: 32px; top: 88px; margin: 0; padding: 4px 8px; background: var(--cp-panel); border-radius: 10px; font-size: 28px; }
+    body:not(.rail-hidden) h1 { visibility: hidden; }
+    body:not(.rail-hidden) .drive-status { position: fixed; left: 368px; top: 16px; padding: 0; border: 0; width: 128px; }
+    body:not(.rail-hidden) .speed-number { font-size: 64px; }
+    body:not(.rail-hidden) #motion-status { position: fixed; left: 368px; top: 178px; width: 240px; margin: 0; line-height: 32px; }
+    #selected-speed { font-size: 28px; color: var(--cp-accent); white-space: nowrap; }
+    #selected-speed-track { position: relative; height: 6px; margin: 4px 0; background: var(--cp-border); }
+    #selected-speed-marker { position: absolute; top: -3px; height: 12px; width: 4px; background: var(--cp-accent); transform: translateX(-50%); }
+    #drive-status { position: fixed; top: 88px; right: 32px; max-width: 360px; margin: 0; }
     #steering-wheel { position: fixed; bottom: calc(28svh + 12px); left: calc(50% - 70px); width: 140px; height: 90px; color: var(--cp-road-line); transform-origin: center; }
     #detail-panel { position: fixed; z-index: 5; inset: 88px 24px 24px auto; width: min(980px, calc(100vw - 48px)); padding: 24px; overflow-y: auto; overscroll-behavior: contain; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 16px; }
     .detail-heading { display: flex; justify-content: space-between; align-items: center; }
@@ -197,7 +230,7 @@
   </style>
   <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
 </head>
-<body class="presenting">
+<body>
   <main id="cockpit">
     <canvas id="road" aria-label="Snapshot-driven night motorway and rear-view mirror"></canvas>
     <div id="collision-flash" aria-hidden="true"></div>
@@ -208,9 +241,27 @@
       </header>
       <span id="connection" class="badge" role="status">CONNECTING</span>
       <p id="error" role="alert"></p>
+      <aside id="tuning-rail" aria-label="Live tuning controls">
+        <label><span class="sr-only">Scenario</span><select id="scenario" disabled><option value="custom">Custom</option></select></label>
+        <p id="scenario-watch" aria-label="What to watch">Tune, then Start.</p>
+        <div class="tuning-fields">
+          <label class="tuning-row"><span>Speed <output id="speed-setting">--</output></span><input id="speed" aria-label="Selected speed in km/h" type="range" min="50" max="130" step="any" value="90" disabled></label>
+          <label class="tuning-row"><span>Damage <output id="threshold-setting">--</output></span><input id="threshold" aria-label="Damage threshold" type="range" min="0" max="1" step="any" value="0.35" disabled></label>
+          <div class="staleness-row"><label for="staleness">Staleness</label><div class="stepper"><button id="staleness-down" aria-label="Decrease staleness limit" disabled>-</button><input id="staleness" aria-label="Staleness limit in ticks" aria-describedby="staleness-help" type="number" min="0" max="1000" value="3" readonly disabled><button id="staleness-up" aria-label="Increase staleness limit" disabled>+</button></div></div>
+          <p id="staleness-help">Waiting for server</p>
+          <label class="tuning-row"><span>Outside <output id="temperature-setting">--</output></span><input id="temperature" aria-label="Outside temperature in degrees Celsius" type="range" min="-20" max="30" step="any" value="12" aria-describedby="temperature-help" disabled></label>
+          <p id="temperature-help">Waiting for server</p>
+          <label class="tuning-select mode-select">Mode<select id="mode" disabled><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
+          <label class="tuning-select">Hazard<select id="hazard" disabled><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
+          <p id="reset-help" hidden>Reset to change</p>
+        </div>
+      </aside>
+      <button id="tuning-toggle" aria-controls="tuning-rail" aria-expanded="true">Hide [T]</button>
+      <p id="scenario-caption" hidden>Custom</p>
       <section class="windshield" aria-label="World">
         <div id="mirror" aria-label="Rear-view mirror"></div><div id="mirror-label"></div>
-        <div class="drive-status"><div id="speed-value" class="speed-number">--</div><div id="speed-label" class="eyebrow">KM/H</div><div id="motion-status">WAITING FOR SERVER</div><div id="drive-status"></div></div>
+        <div class="drive-status"><div id="speed-value" class="speed-number">--</div><div id="speed-label" class="eyebrow">KM/H</div><div id="selected-speed">SET --</div><div id="selected-speed-track" role="img" aria-label="Selected speed"><div id="selected-speed-marker"></div></div><div id="motion-status">WAITING FOR SERVER</div></div>
+        <div id="drive-status"></div>
         <div id="sensor" class="sensor">
           <div id="thermal-contact" aria-hidden="true"></div><img id="reveal-image" alt="" hidden>
           <div><strong id="distance">-- m</strong><div id="contact-name">THERMAL / RADAR CONTACT</div><div id="identity-note">Sensor overlay / not headlight visibility</div></div>
@@ -235,31 +286,24 @@
           <div class="adviser-title"><h2>ADVISER</h2><div id="thinking-ring" aria-hidden="true"></div></div>
           <div id="advice-action">NO ADVICE YET</div><div id="advice-history">Awaiting start</div>
           <p id="advice-rationale">The world keeps moving while reasoning works.</p>
-          <div class="freshness-track"><div id="freshness"></div></div>
+          <div id="freshness-track" class="freshness-track" role="img" aria-label="Observation age and staleness limit"><div id="freshness" hidden></div><div id="freshness-limit"></div></div>
         </article>
       </section>
       <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="stop" hidden>STOP</button><button id="reset" disabled>RESET</button></div>
         <svg id="steering-wheel" viewBox="0 0 160 100" aria-label="Steering wheel follows reported lane-change progress"><path d="M22 94a60 60 0 1 1 116 0" fill="none" stroke="currentColor" stroke-width="13"/><path d="M25 46L80 67L135 46M80 67V98" fill="none" stroke="currentColor" stroke-width="12"/><circle cx="80" cy="62" r="18" fill="var(--cp-surface)" stroke="currentColor" stroke-width="6"/></svg>
-      <div class="presets" role="group" aria-label="Rehearsal moments"><button data-preset="1" aria-pressed="false" title="1 / Reflex" aria-label="1 / Reflex">1</button><button data-preset="2" aria-pressed="false" title="2 / Ambiguous" aria-label="2 / Ambiguous">2</button><button data-preset="3" aria-pressed="false" title="3 / Refused" aria-label="3 / Refused">3</button><button data-preset="4" aria-pressed="false" title="4 / Allowed" aria-label="4 / Allowed">4</button><button id="free-drive" disabled title="Free drive requires live mode; staged moments remain available offline">FREE / LIVE ONLY</button></div>
       <section id="drive-scoreboard" hidden aria-label="Drive scoreboard" role="status"><h2>DRIVE COMPLETE</h2><p id="drive-summary"></p><dl id="drive-score"></dl><p>Reset for another run.</p></section>
       <p id="model-error" role="alert"></p>
       <aside id="detail-panel" hidden aria-label="Controls, sensor input and decision details">
       <div class="detail-heading"><h2>Controls &amp; details</h2><button id="details-close">Close</button></div>
-      <div class="row"><button id="mute" aria-pressed="false">SOUND ON [M]</button><button id="presenter" aria-pressed="true">PRESENT [P]</button><button id="fullscreen">FULLSCREEN [F]</button><span id="tick" class="badge">TICK --</span></div>
+      <div class="row"><button id="mute" aria-pressed="false">SOUND ON [M]</button><button id="presenter" aria-pressed="false">PRESENT [P]</button><button id="fullscreen">FULLSCREEN [F]</button><span id="tick" class="badge">TICK --</span></div>
       <p id="caption">The world does not wait. Advice expires. Agreement is not authority.</p>
       <section class="controls" aria-label="Presenter controls">
         <div class="toolbar">
           <label>Run<select id="run"><option value="staged">Staged moments</option><option value="free" disabled>Free drive / live only</option></select></label>
           <label>Drive duration (s)<input id="duration" type="number" min="1" max="3600" step="1" value="120" required></label>
-          <label>Mode<select id="mode"><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
-          <label>Hazard<select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
-          <label>Selected km/h<input id="speed" type="number" min="50" max="130" step="1" value="90" required></label>
-          <label>Outside °C<input id="temperature" type="number" min="-20" max="30" step="any" value="12" required></label>
-          <label>Damage threshold<input id="threshold" type="number" min="0" max="1" step="0.01" value="0.35" required></label>
-          <label>Staleness / ticks<input id="staleness" type="number" min="0" max="1000" step="1" value="3" required aria-describedby="staleness-help"></label>
+          <button id="free-drive" disabled title="Free drive requires live mode">FREE / LIVE ONLY</button>
         </div>
         <p id="drive-availability"></p>
-        <div id="staleness-help"></div>
       </section>
       <h3>World / trusted vehicle sensor</h3><div id="temperature-status"></div><div id="surface"></div><div id="lane-status"></div>
       <aside id="outcome-card" hidden role="status"><strong id="outcome-title"></strong><p id="outcome-detail"></p></aside>
@@ -275,7 +319,7 @@
         <p>Recorded responses are real synthetic-input captures. Ambiguous samples were curated for the 0.35 versus 0.50 contrast. Slow replay repeats a captured recommendation, not adaptive reasoning. Timing and live results vary.</p>
         <pre id="tick-log"></pre>
       </section>
-      <footer><span>TOY WORLD / NOT A DRIVING SYSTEM / NO SAFETY GUARANTEE</span><span>SPACE start / R reset / P present / 1-4 presets / M mute / F fullscreen</span><span>One shared world across both views.</span></footer>
+      <footer><span>TOY WORLD / NOT A DRIVING SYSTEM / NO SAFETY GUARANTEE</span><span>SPACE start / R reset / T tuning / P present / M mute / F fullscreen</span><span>One shared world across both views.</span></footer>
       </aside>
     </div>
   </main>

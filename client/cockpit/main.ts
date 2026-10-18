@@ -1,6 +1,6 @@
 import { CockpitAudio } from './audio.js';
 import { canStart } from '../drive.js';
-import { createControls } from './controls.js';
+import { createControls, scenarios, scenarioFor, scenarioCommands, ScenarioSelection, sendControl } from './controls.js';
 import type { Control } from './controls.js';
 import { element, input, renderDash, select } from './dash.js';
 import type { CockpitView } from './model.js';
@@ -15,35 +15,58 @@ let scene: RoadScene | undefined;
 let current: CockpitView | undefined;
 let busy = false;
 let disposed = false;
+let choosingScenario = false;
+const selection = new ScenarioSelection();
+const scenarioSelect = select('scenario');
+scenarioSelect.replaceChildren(...scenarios.map((scenario) => {
+  const option = document.createElement('option');
+  option.value = scenario.id;
+  option.textContent = scenario.name;
+  return option;
+}));
 
-async function send(control: Control, retryAfterReset = true): Promise<void> {
-  const response = await fetch('/api/control', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(control),
-  });
-  if (!response.ok) {
-    const body: unknown = await response.json();
-    const message = typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
-      ? body.error : `Control failed: HTTP ${response.status}`;
-    if (retryAfterReset && response.status === 409 && (control.command === 'mode' || control.command === 'hazard')) {
-      await send({ command: 'reset' });
-      await send(control, false);
-      return;
-    }
-    throw new Error(message);
-  }
+function render(events: Parameters<typeof renderDash>[1] = []): void {
+  if (!current) return;
+  renderDash(current, events, busy, choosingScenario);
+  const scenario = scenarioFor(selection.update(current.snapshot));
+  scenarioSelect.value = scenario.id;
+  scenarioSelect.disabled = busy;
+  element('scenario-watch').textContent = scenario.watch;
+  element('scenario-caption').textContent = scenario.name;
+  element('caption').textContent = `${scenario.name}: ${scenario.watch}`;
 }
 
-const run = createControls(send, (value) => {
+const run = createControls(sendControl, (value) => {
   busy = value;
-  if (current) renderDash(current, [], busy);
+  render();
 });
 
 function execute(commands: Control[]): void {
   error.textContent = '';
-  void run(commands).catch((failure: unknown) =>
-    reportError(failure instanceof Error ? failure.message : 'Control request failed.'));
+  void run(commands).catch((failure: unknown) => {
+    selection.custom();
+    render();
+    reportError(failure instanceof Error ? failure.message : 'Control request failed.');
+  });
+}
+
+scenarioSelect.addEventListener('change', () => {
+  const scenario = scenarioFor(scenarioSelect.value);
+  selection.choose(scenario.id);
+  if (scenario.id === 'custom') { render(); return; }
+  choosingScenario = true;
+  render();
+  error.textContent = '';
+  void run(scenarioCommands(scenario.id)).catch((failure: unknown) => {
+    selection.custom();
+    reportError(failure instanceof Error ? failure.message : 'Scenario controls failed.');
+  }).finally(() => { choosingScenario = false; render(); });
+});
+
+function tune(commands: Control[]): void {
+  selection.custom();
+  render();
+  execute(commands);
 }
 
 function start(): void {
@@ -63,12 +86,12 @@ function mute(): void {
 element('start').addEventListener('click', start);
 element('reset').addEventListener('click', () => execute([{ command: 'reset' }]));
 element('stop').addEventListener('click', () => execute([{ command: 'stop' }]));
-element('free-drive').addEventListener('click', () => execute([
+element('free-drive').addEventListener('click', () => tune([
   { command: 'reset' }, { command: 'run', value: 'free' }, { command: 'mode', value: 'async_gated' },
 ]));
 select('run').addEventListener('change', () => {
   const value = select('run').value;
-  if (value === 'free' || value === 'staged') execute([
+  if (value === 'free' || value === 'staged') tune([
     { command: 'reset' }, { command: 'run', value },
     ...(value === 'free' ? [{ command: 'mode', value: 'async_gated' } as const] : []),
   ]);
@@ -76,23 +99,32 @@ select('run').addEventListener('change', () => {
 element('mute').addEventListener('click', mute);
 select('mode').addEventListener('change', () => {
   const value = select('mode').value;
-  if (value === 'fast_only' || value === 'blocking' || value === 'async_gated') execute([{ command: 'mode', value }]);
+  if (value === 'fast_only' || value === 'blocking' || value === 'async_gated') tune([{ command: 'mode', value }]);
 });
 select('hazard').addEventListener('change', () => {
   const value = select('hazard').value;
-  if (value === 'elk' || value === 'small_animal' || value === 'ambiguous') execute([{ command: 'hazard', value }]);
+  if (value === 'elk' || value === 'small_animal' || value === 'ambiguous') tune([{ command: 'hazard', value }]);
 });
-for (const command of ['speed', 'temperature', 'threshold', 'staleness', 'duration'] as const) {
+for (const command of ['speed', 'temperature', 'threshold', 'duration'] as const) {
   const control = input(command);
-  control.addEventListener('change', () => {
-    if (control.reportValidity()) execute([{ command, value: control.valueAsNumber }]);
+  control.addEventListener(control.type === 'range' ? 'input' : 'change', () => {
+    if (!control.reportValidity()) return;
+    const precision = command === 'speed' ? 1 : command === 'threshold' ? 100 : command === 'temperature' ? 10 : null;
+    const value = precision === null ? control.valueAsNumber : Math.round(control.valueAsNumber * precision) / precision;
+    if (control.type === 'number') control.blur();
+    tune([{ command, value }]);
+  });
+}
+for (const [id, delta] of [['staleness-down', -1], ['staleness-up', 1]] as const) {
+  element(id).addEventListener('click', () => {
+    if (current) tune([{ command: 'staleness', value: current.snapshot.settings.stalenessLimitTicks + delta }]);
   });
 }
 
 const removePresenter = installPresenter(run, start, mute, () => busy || !current, reportError);
 const disconnect = connect((view, events) => {
   current = view;
-  renderDash(view, events, busy);
+  render(events);
   scene?.update(view, events);
   audio.update(view, events);
 }, (status) => {

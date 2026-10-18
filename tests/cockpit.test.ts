@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mapSnapshot, EventTracker, parseSnapshot, freshnessPositions } from '../client/cockpit/model.js';
+import { mapSnapshot, EventTracker, parseSnapshot, freshnessPositions, contactPosition } from '../client/cockpit/model.js';
 import { createControls, scenarioCommands, scenarios, ScenarioSelection, sendControl } from '../client/cockpit/controls.js';
 import type { Control } from '../client/cockpit/controls.js';
 import { loadConfig } from '../src/config.js';
@@ -45,8 +45,25 @@ test('cockpit keeps identity concealed, follows reported turn progress, and pres
   value.advice.gate = { allowed: false, reasons: [{ reason: 'stale_advice', detail: 'Stale only.' }] };
   assert.equal(mapSnapshot(value).permitted, 'good');
   value.world.identity = 'elk';
+  assert.equal(mapSnapshot(value).identity, null);
   value.world.outcome = 'braked';
   assert.equal(mapSnapshot(value).identity, 'elk');
+});
+
+test('cockpit world contact follows only sensor lane/range and trails known movement without inventing a contact', () => {
+  const state = snapshot();
+  state.scene.contact = { lane: 1, rangeM: 123 };
+  state.world.hazardLane = 3;
+  state.world.distanceM = 456;
+  state.world.distanceTravelledM = 30;
+  const view = mapSnapshot(state);
+  assert.deepEqual(contactPosition(view), { x: -3.6, z: -123 });
+  assert.deepEqual(contactPosition(view, 25), { x: -3.6, z: -128 });
+  state.scene.contact = null;
+  assert.equal(contactPosition(mapSnapshot(state)), null);
+  state.scene.contact = { lane: 2, rangeM: 10 };
+  state.world.hazardActive = false;
+  assert.equal(contactPosition(mapSnapshot(state)), null);
 });
 
 test('cockpit handles zero staleness and retains previous advice while reassessing', () => {

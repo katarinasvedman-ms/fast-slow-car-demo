@@ -139,7 +139,7 @@ try {
   const canvas = element('road');
   if (!(canvas instanceof HTMLCanvasElement)) throw new Error('Missing road canvas.');
   if (!disposed) {
-    scene = new RoadScene(canvas, element('mirror'), reportError);
+    scene = new RoadScene(canvas, element('mirror'), element('sensor'), reportError);
     if (current) scene.update(current, []);
   }
 } catch (failure) {

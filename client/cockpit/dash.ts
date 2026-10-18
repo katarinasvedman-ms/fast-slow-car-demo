@@ -30,10 +30,16 @@ function animate(id: string, name: string): void {
     node.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], { duration: 650 });
   } else {
     node.animate([
-      { transform: 'translateX(100px)', opacity: 0 },
-      { transform: 'translateX(0)', opacity: 1, offset: 0.55 },
-      { transform: name === 'refused' ? 'translateX(65px)' : 'translateX(-100px)', opacity: 0 },
-    ], { duration: 1000 });
+      { transform: 'translateX(-12px)', opacity: 0 },
+      { transform: name === 'refused' ? 'translateX(130px)' : 'translateX(145px)', opacity: 1, offset: 0.5 },
+      { transform: name === 'refused' ? 'translateX(112px) rotate(-12deg)' : 'translateX(190px)', opacity: 1, offset: 0.7 },
+      { transform: name === 'refused' ? 'translateX(-12px) rotate(8deg)' : 'translateX(205px)', opacity: 0 },
+    ], { duration: 1400 });
+    const delivery = element('gate-delivery');
+    for (const animation of delivery.getAnimations()) animation.cancel();
+    delivery.dataset.state = name === 'refused' ? 'bad' : 'good';
+    delivery.setAttribute('aria-label', `Advice ${name} by the deterministic gate`);
+    delivery.animate([{ opacity: 0 }, { opacity: 1, offset: 0.12 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: 1400 });
   }
 }
 
@@ -49,7 +55,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   text('selected-speed', `SET ${world.selectedSpeedKmh}`);
   element('selected-speed-marker').style.left = `${(world.selectedSpeedKmh - 50) / 80 * 100}%`;
   element('selected-speed-track').setAttribute('aria-label', `Selected speed ${world.selectedSpeedKmh} km/h; scale 50 to 130`);
-  text('distance', `${world.distanceM.toFixed(0)} m`);
+  text('distance', snapshot.scene.contact ? `${snapshot.scene.contact.rangeM.toFixed(0)} m` : '-- m');
   text('motion-status', snapshot.drive.phase === 'collision' ? 'COLLISION / PRESS START'
     : snapshot.drive.phase === 'finished' ? 'DRIVE COMPLETE'
     : snapshot.drive.phase === 'dwell' ? `SCENARIO CLEAR IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
@@ -59,38 +65,38 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
       : world.laneChange ? `CHANGING TO LANE ${world.laneChange.toLane}` : world.braking ? 'BRAKING' : 'ON COURSE');
   text('surface', `ROAD ${snapshot.scene.roadSurface.toUpperCase()} / LANE ${world.carLane}`);
   text('contact-description', snapshot.scene.contactDescription);
-  element('sensor').hidden = !world.hazardActive;
+  element('sensor').hidden = snapshot.scene.contact === null || !world.hazardActive || world.outcome === 'collision';
   text('contact-name', identity === null ? 'THERMAL / RADAR CONTACT'
     : identity === 'elk' ? 'ELK' : 'SMALL ANIMAL');
   element('thermal-contact').hidden = identity !== null;
   element('sensor').classList.toggle('revealed', identity !== null);
   element('thermal-contact').classList.toggle('uncertain', /uncertain|occluded|intermittent/i.test(snapshot.scene.contactDescription));
-  element('thermal-contact').style.setProperty('--contact-size',
-    `${Math.min(95, 18 + 75 * (1 - world.distanceM / settings.initialHazardDistanceM))}px`);
-  const image = element('reveal-image');
-  if (!(image instanceof HTMLImageElement)) throw new Error('Invalid reveal image.');
-  image.hidden = identity === null;
-  if (identity === null) {
+  const image = element('impact-image');
+  if (!(image instanceof HTMLImageElement)) throw new Error('Invalid impact image.');
+  const impact = events.some((event) => event.type === 'outcome' && event.outcome === 'collision');
+  image.hidden = identity === null || world.outcome !== 'collision';
+  if (image.hidden) {
     image.onload = null;
     image.removeAttribute('src');
-    image.classList.remove('revealing');
+    image.classList.remove('impact-active');
   }
   else {
     const source = identity === 'elk' ? '/images/moose-cutout.png' : '/images/squirrel-cutout.png';
     if (image.getAttribute('src') !== source) {
-      image.classList.remove('revealing');
+      image.classList.remove('impact-active');
       image.onload = () => {
-        if (!image.hidden && image.getAttribute('src') === source) image.classList.add('revealing');
+        if (impact && !image.hidden && image.getAttribute('src') === source) image.classList.add('impact-active');
       };
       image.src = source;
     }
-    image.alt = identity === 'elk' ? 'Revealed elk' : 'Revealed small animal';
-    image.style.setProperty('--reveal-size', `${Math.max(72, Math.min(180, 42000 / Math.max(1, world.distanceM)))}px`);
-    image.style.setProperty('--reveal-light', String(0.65 + 0.35 * Math.max(0, 1 - world.distanceM / 75)));
+    image.alt = identity === 'elk' ? 'Elk at collision' : 'Small animal at collision';
   }
   text('identity-note', identity === null
     ? 'Sensor overlay / not headlight visibility'
     : 'Identity at outcome / actual range');
+  element('collision-overlay').hidden = world.outcome !== 'collision';
+  text('collision-detail', `${world.distanceM.toFixed(0)} m / ${snapshot.drive.kind === 'free' && snapshot.drive.phase === 'collision'
+    ? 'Press Start to resume' : 'Reset to replay'}`);
   const mirror = snapshot.scene.lanes.filter((lane) => lane.vehicleBehindM !== null);
   text('mirror-label', mirror.map((lane) => `LANE ${lane.lane} / ${lane.vehicleBehindM} m BEHIND`).join(' | ') || 'NO REAR TRAFFIC');
   text('lane-status', snapshot.scene.lanes.map((lane) =>
@@ -136,8 +142,11 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
       : advice.status === 'error' ? 'ADVICE FAILED' : advice.status === 'idle' ? 'AWAITING START' : 'ASSESSMENT RECEIVED');
   element('thinking-ring').classList.toggle('thinking', advice.status === 'thinking');
   text('advice-action', advice.data
+    ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / L${advice.data.targetLane}` : ''}`
+    : advice.status === 'thinking' ? 'THINKING' : advice.status === 'error' ? 'FAILED' : 'NO ADVICE');
+  text('advice-action-full', advice.data
     ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / LANE ${advice.data.targetLane}` : ''}`
-    : advice.status === 'thinking' ? 'THINKING' : advice.status === 'error' ? 'ADVICE FAILED' : 'NO ADVICE YET');
+    : 'No recommendation received.');
   text('advice-history', view.historical ? completedEpisode ? 'Previous episode' : `Previous / ${advice.status}`
     : advice.application?.split(' - ')[0] ?? (advice.data ? 'Recommendation' : snapshot.mode === 'fast_only' ? 'Disabled / fast only' : 'Awaiting advice'));
   const rationale = advice.data?.rationale ?? 'The world keeps moving while reasoning works.';
@@ -201,7 +210,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   element('reset').toggleAttribute('disabled', busy);
   for (const event of events) {
     if (event.type === 'reset') {
-      for (const id of ['envelope', 'deadline', 'collision-flash']) {
+      for (const id of ['envelope', 'gate-delivery', 'deadline', 'collision-flash']) {
         for (const animation of element(id).getAnimations()) animation.cancel();
       }
       text('delivery', 'NO ADVICE DELIVERY YET');

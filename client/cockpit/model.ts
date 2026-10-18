@@ -26,6 +26,12 @@ export function freshnessPositions(age: number | null, limit: number): {
   return { axisMax, agePercent: (age ?? 0) / axisMax * 100, limitPercent: limit / axisMax * 100 };
 }
 
+export function contactPosition(view: CockpitView, shownDistance = view.travelledM): { x: number; z: number } | null {
+  const contact = view.snapshot.scene.contact;
+  if (!view.snapshot.world.hazardActive || contact === null) return null;
+  return { x: (contact.lane - 2) * 3.6, z: -contact.rangeM - (view.travelledM - shownDistance) };
+}
+
 export function mapSnapshot(snapshot: Snapshot): CockpitView {
   const { world, advice, settings } = snapshot;
   const age = advice.observedAtTick === null ? null : Math.max(0, world.tick - advice.observedAtTick);
@@ -43,7 +49,7 @@ export function mapSnapshot(snapshot: Snapshot): CockpitView {
       ? turning.fromLane + (turning.toLane - turning.fromLane) * turning.elapsedTicks / turning.durationTicks
       : world.carLane,
     travelledM: world.distanceTravelledM,
-    identity: world.identity,
+    identity: world.outcome === 'running' ? null : world.identity,
     fresh: decision === null ? 'off' : refused('stale_advice') ? 'bad' : 'good',
     permitted: decision === null ? 'off' : refused('prohibited_action') ? 'bad' : 'good',
     historical: advice.data !== null && (advice.status !== 'ready' ||

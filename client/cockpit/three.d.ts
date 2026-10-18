@@ -4,8 +4,10 @@ declare module 'three' {
     constructor(value: string | number);
   }
   export class Vector3 {
+    constructor(x?: number, y?: number, z?: number);
     x: number; y: number; z: number;
     set(x: number, y: number, z: number): this;
+    project(camera: PerspectiveCamera): this;
   }
   export class Object3D {
     position: Vector3;
@@ -15,6 +17,7 @@ declare module 'three' {
     add(...objects: Object3D[]): void;
     remove(...objects: Object3D[]): void;
     lookAt(x: number, y: number, z: number): void;
+    updateMatrixWorld(force?: boolean): void;
   }
   export class Scene extends Object3D {
     background: Color;
@@ -51,7 +54,7 @@ declare module 'three' {
     map: Texture | null;
   }
   export class MeshBasicMaterial extends Material {
-    constructor(options: { color: Color; transparent?: boolean; opacity?: number; wireframe?: boolean });
+    constructor(options: { color: Color; map?: Texture; transparent?: boolean; opacity?: number; wireframe?: boolean; depthWrite?: boolean });
     opacity: number;
   }
   export class Mesh extends Object3D {
@@ -59,6 +62,7 @@ declare module 'three' {
     geometry: BufferGeometry;
   }
   export class Texture { dispose(): void; colorSpace: string; }
+  export class CanvasTexture extends Texture { constructor(canvas: HTMLCanvasElement); }
   export class TextureLoader {
     load(url: string, onLoad?: (texture: Texture) => void, onProgress?: undefined, onError?: (error: unknown) => void): Texture;
   }

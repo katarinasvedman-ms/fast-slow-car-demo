@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import type { CockpitEvent, CockpitView } from './model.js';
+import { contactPosition } from './model.js';
 
 export class RoadScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1600);
-  private rear = new THREE.PerspectiveCamera(55, 3.5, 0.1, 150);
+  private rear = new THREE.PerspectiveCamera(25, 3.5, 0.1, 150);
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[] = [];
   private textures: THREE.Texture[] = [];
   private markers = new THREE.Group();
+  private roadDashes: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial }[] = [];
   private traffic = new Map<number, THREE.Group>();
   private contact = new THREE.Group();
   private animal: THREE.Mesh | undefined;
@@ -36,6 +38,7 @@ export class RoadScene {
   constructor(
     private canvas: HTMLCanvasElement,
     private mirror: HTMLElement,
+    private sensor: HTMLElement,
     private onError: (message: string) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -55,7 +58,7 @@ export class RoadScene {
   private material(name: string, glowing = false): THREE.MeshStandardMaterial {
     const color = this.color(name);
     const material = new THREE.MeshStandardMaterial({
-      color, roughness: 0.8, metalness: 0.15,
+      color, roughness: name === 'asphalt' ? 0.36 : 0.8, metalness: name === 'asphalt' ? 0.28 : 0.15,
       ...(glowing ? { emissive: color, emissiveIntensity: 0.7 } : {}),
     });
     this.materials.push(material);
@@ -82,16 +85,16 @@ export class RoadScene {
     this.release();
     this.scene = new THREE.Scene();
     this.scene.background = this.color('night');
-    this.scene.fog = new THREE.Fog(this.color('night'), 18, 125);
-    this.scene.add(new THREE.HemisphereLight(this.color('horizon'), this.color('night'), 1.7));
+    this.scene.fog = new THREE.Fog(this.color('night'), 45, 650);
+    this.scene.add(new THREE.HemisphereLight(this.color('horizon'), this.color('night'), 2.1));
     const asphalt = this.material('asphalt');
-    const paint = this.material('road-line', true);
+    const paint = this.material('road-line');
     const shoulder = this.material('shoulder');
     const road = this.box(11.2, 0.12, 1700, asphalt);
     road.position.set(0, -0.1, -720);
     this.scene.add(road);
     for (const x of [-5.8, 5.8]) {
-      const edge = this.box(0.15, 0.03, 1700, paint);
+      const edge = this.box(0.045, 0.015, 1700, paint);
       edge.position.set(x, 0.01, -720);
       this.scene.add(edge);
       const bank = this.box(25, 0.08, 1700, shoulder);
@@ -99,11 +102,15 @@ export class RoadScene {
       this.scene.add(bank);
     }
     this.markers = new THREE.Group();
+    this.roadDashes = [];
     for (let z = -170; z < 80; z += 12) {
       for (const x of [-1.8, 1.8]) {
-        const dash = this.box(0.12, 0.025, 4.5, paint);
+        const material = new THREE.MeshBasicMaterial({ color: this.color('road-line'), transparent: true, opacity: 1 });
+        this.materials.push(material);
+        const dash = this.box(0.055, 0.015, 3.2, material);
         dash.position.set(x, 0.015, z);
         this.markers.add(dash);
+        this.roadDashes.push({ mesh: dash, material });
       }
       for (const x of [-6.2, 6.2]) {
         const post = this.box(0.12, 0.9, 0.12, shoulder);
@@ -123,22 +130,36 @@ export class RoadScene {
       const roof = this.box(1.4, 0.6, 1.8, glass);
       roof.position.y = 0.6;
       car.add(roof);
+      for (const offset of [-0.55, 0.55]) {
+        const headlight = this.box(0.3, 0.18, 0.08, this.material('headlight', true));
+        headlight.position.set(offset, 0.1, -1.93);
+        car.add(headlight);
+      }
       car.visible = false;
       this.traffic.set(lane, car);
       this.scene.add(car);
     }
     this.contact = new THREE.Group();
-    const geometry = new THREE.SphereGeometry(0.65, 16, 10);
-    this.geometries.push(geometry);
-    const thermal = new THREE.MeshBasicMaterial({ color: this.color('warning'), wireframe: true });
-    this.materials.push(thermal);
-    this.contact.add(new THREE.Mesh(geometry, thermal));
     this.contact.visible = false;
-    this.scene.add(this.contact);
     this.brakeGlow = new THREE.Group();
-    const brakeMaterial = new THREE.MeshBasicMaterial({ color: this.color('danger'), transparent: true, opacity: 0.12 });
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = glowCanvas.height = 128;
+    const context = glowCanvas.getContext('2d');
+    if (!context) throw new Error('Brake glow canvas is unavailable.');
+    const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, this.colors.getPropertyValue('--cp-danger').trim());
+    gradient.addColorStop(1, 'transparent');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 128, 128);
+    const glowTexture = new THREE.CanvasTexture(glowCanvas);
+    glowTexture.colorSpace = THREE.SRGBColorSpace;
+    this.textures.push(glowTexture);
+    const brakeMaterial = new THREE.MeshBasicMaterial({ color: this.color('danger'), map: glowTexture, transparent: true, opacity: 0.2, depthWrite: false });
     this.materials.push(brakeMaterial);
-    const glow = this.box(3, 0.015, 5, brakeMaterial);
+    const glowGeometry = new THREE.PlaneGeometry(6, 10);
+    this.geometries.push(glowGeometry);
+    const glow = new THREE.Mesh(glowGeometry, brakeMaterial);
+    glow.rotation.x = -Math.PI / 2;
     glow.position.set(0, 0.02, -3.5);
     this.brakeGlow.add(glow);
     this.brakeGlow.visible = false;
@@ -181,9 +202,10 @@ export class RoadScene {
       car.visible = lane.vehicleBehindM !== null;
       car.position.set((lane.lane - 2) * 3.6, 0.55, lane.vehicleBehindM ?? 0);
     }
-    this.contact.visible = world.hazardActive && view.identity === null;
+    const position = contactPosition(view);
+    this.contact.visible = position !== null;
     this.brakeGlow.visible = world.braking;
-    this.contact.position.set((world.hazardLane - 2) * 3.6, 0.8, -world.distanceM);
+    if (position) this.contact.position.set(position.x, 0.7, position.z);
     if (view.identity !== null && this.animalIdentity !== view.identity) {
       if (this.animal && this.animalMaterial) {
         this.scene.remove(this.animal);
@@ -226,8 +248,8 @@ export class RoadScene {
     }
     if (this.animal) {
       if (!this.animal.visible && view.identity !== null) this.animalRevealedAt = performance.now();
-      this.animal.visible = view.identity !== null;
-      this.animal.position.set((world.hazardLane - 2) * 3.6, view.identity === 'elk' ? 1.5 : 0.35, -world.distanceM);
+      this.animal.visible = view.identity !== null && position !== null;
+      if (position) this.animal.position.set(position.x, view.identity === 'elk' ? 1.5 : 0.35, position.z);
     }
   }
 
@@ -254,9 +276,14 @@ export class RoadScene {
     this.camera.position.set(x + Math.sin(now * 0.09) * impact * 0.1, world.braking ? 1.2 : 1.35, 0);
     this.camera.lookAt(x, -8, -60);
     this.camera.rotation.z = this.reduced.matches ? 0 : (view.lane - this.shownLane) * 0.025;
+    this.camera.updateMatrixWorld();
     this.markers.position.z = this.shownDistance % 12;
+    for (const { mesh, material } of this.roadDashes) {
+      material.opacity = Math.max(0, Math.min(1, (-mesh.position.z - this.markers.position.z - 5) / 12));
+    }
     this.brakeGlow.position.x = x;
-    this.contact.position.z = -world.distanceM - (view.travelledM - this.shownDistance);
+    const position = contactPosition(view, this.shownDistance);
+    if (position) this.contact.position.set(position.x, 0.7, position.z);
     if (this.animal) this.animal.position.z = this.contact.position.z;
     if (this.animalMaterial) {
       this.animalMaterial.opacity = !this.animalReady ? 0
@@ -268,11 +295,25 @@ export class RoadScene {
       lamp.target.position.x = x + offset;
     });
     const { width, height } = this.canvas.getBoundingClientRect();
+    const canvas = this.canvas.getBoundingClientRect();
+    const projected = new THREE.Vector3(this.contact.position.x, this.contact.position.y, this.contact.position.z).project(this.camera);
+    const visible = position !== null && projected.z >= -1 && projected.z <= 1 && Math.abs(projected.x) <= 1;
+    this.sensor.style.visibility = visible ? 'visible' : 'hidden';
+    if (visible) {
+      const left = (projected.x + 1) * width / 2;
+      const top = (1 - projected.y) * height / 2;
+      this.sensor.style.left = `${canvas.left + left}px`;
+      this.sensor.style.top = `${canvas.top + top}px`;
+      const labelWidth = 400;
+      const labelLeft = Math.max(368, Math.min(width - labelWidth - 24, left + 48));
+      this.sensor.style.setProperty('--label-x', `${labelLeft - left}px`);
+      this.sensor.style.setProperty('--label-y', `${Math.max(156, height * 0.27) - top}px`);
+      this.sensor.style.setProperty('--contact-size', `${Math.max(22, Math.min(88, 900 / Math.max(1, -position.z)))}px`);
+    }
     this.renderer.setScissorTest(false);
     this.renderer.setViewport(0, 0, width, height);
     this.renderer.render(this.scene, this.camera);
     const mirror = this.mirror.getBoundingClientRect();
-    const canvas = this.canvas.getBoundingClientRect();
     this.rear.position.set(x, 1.6, 0);
     this.rear.lookAt(x, 1, 40);
     this.rear.aspect = mirror.width / Math.max(mirror.height, 1);
@@ -282,13 +323,16 @@ export class RoadScene {
     this.renderer.setScissorTest(true);
     this.renderer.setScissor(left, bottom, mirror.width, mirror.height);
     this.renderer.setViewport(left, bottom, mirror.width, mirror.height);
+    this.scene.background = this.color('shoulder');
     this.renderer.render(this.scene, this.rear);
+    this.scene.background = this.color('night');
     this.renderer.setScissorTest(false);
   };
 
   private contextLost = (event: Event): void => {
     event.preventDefault();
     cancelAnimationFrame(this.frame);
+    this.sensor.style.visibility = 'hidden';
     this.onError('3D graphics context lost. Reload the cockpit or use the 2D view.');
   };
 

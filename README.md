@@ -112,11 +112,27 @@ the 2D page is unchanged.
 Before an outcome the cockpit shows only the sensor contact, even with an
 explicit Elk selection. Animal identity is revealed only from `world.identity`.
 The labelled thermal/radar overlay can show contacts beyond the headlights and
-fog; the terminal identity overlay does not move a distant animal closer.
+fog; the contact is projected from its sensor lane and range into the windshield,
+including during lane changes. Its range caption sits beside the contact rather
+than on the lane markings. The terminal reveal does not move a distant animal closer.
 Cockpit-only `*-cutout.png` assets remove the supplied images' white matte;
 the original 2D assets are unchanged. Revealed world cutouts use headlight-reactive
-materials at the reported range and fade in over 300 ms. The separate labelled
-outcome callout scales with range, but is not a claim of headlight visibility.
+materials at the reported range and fade in over 300 ms. There is no corner
+animal card. A distant stopped hazard therefore remains small; its identity
+caption is readable without pretending that headlights reach it.
+Only a real collision triggers the brief full-view cutout, pale flash, camera
+shake and collision overlay. That impact illustration is not a second world
+object or an invented outcome.
+Thin dashed markings fade out close to the camera instead of becoming heavy
+foreground slashes. Asphalt sheen, a faint horizon glow, soft brake-light falloff,
+hood edge and A-pillars frame the view. The mirror shows the existing observed
+vehicle behind, not additional traffic.
+The enlarged steering wheel sits in a reserved bottom-centre dashboard space;
+REFLEX and Adviser are on its left and the gate is on its right. The risk
+number is below, not on top of, its dial. A large envelope bounces back on a
+real refusal or passes the gate on a real allowance; reconnection does not
+replay old deliveries. Full action, rationale and application details remain
+in Details.
 Road displacement follows reported distance, lane motion follows reported turn
 progress, and smoothing only trails known state. Traffic retains its world-backed
 fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.

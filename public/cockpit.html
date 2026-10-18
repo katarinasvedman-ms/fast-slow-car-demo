@@ -121,6 +121,13 @@
     .speed-number { font-size: clamp(80px, 6vw, 112px); font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; color: var(--cp-road-line); }
     #speed-label, #surface { color: var(--cp-road-line); }
     #motion-status { font-size: 28px; color: var(--cp-headlight); font-weight: 650; margin-top: 12px; }
+    #drive-status { font-size: 28px; color: var(--cp-road-line); margin-top: 12px; }
+    #drive-scoreboard { position: fixed; z-index: 3; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(1000px, calc(100vw - 64px)); padding: 24px; border: 1px solid var(--cp-border-strong); border-radius: 16px; background: var(--cp-panel-strong); }
+    #drive-scoreboard h2 { font-size: 40px; margin: 0; }
+    #drive-summary { font-size: 28px; margin: 12px 0; }
+    #drive-score { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin: 0; }
+    #drive-score > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--cp-border); }
+    #drive-score dt { font-size: 28px; } #drive-score dd { font-size: 40px; margin: 0; }
     .braking #motion-status { color: var(--cp-danger); }
     .cluster { position: fixed; inset: auto 0 0; height: 28svh; display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 0; padding: 8px 20px; background: var(--cp-panel); border-top: 1px solid var(--cp-border-strong); backdrop-filter: blur(12px); border-radius: 16px 16px 0 0; }
     .instrument { padding: 0 20px; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -203,7 +210,7 @@
       <p id="error" role="alert"></p>
       <section class="windshield" aria-label="World">
         <div id="mirror" aria-label="Rear-view mirror"></div><div id="mirror-label"></div>
-        <div class="drive-status"><div id="speed-value" class="speed-number">--</div><div id="speed-label" class="eyebrow">KM/H</div><div id="motion-status">WAITING FOR SERVER</div></div>
+        <div class="drive-status"><div id="speed-value" class="speed-number">--</div><div id="speed-label" class="eyebrow">KM/H</div><div id="motion-status">WAITING FOR SERVER</div><div id="drive-status"></div></div>
         <div id="sensor" class="sensor">
           <div id="thermal-contact" aria-hidden="true"></div><img id="reveal-image" alt="" hidden>
           <div><strong id="distance">-- m</strong><div id="contact-name">THERMAL / RADAR CONTACT</div><div id="identity-note">Sensor overlay / not headlight visibility</div></div>
@@ -211,7 +218,7 @@
       </section>
       <section class="cluster" aria-label="Decision instruments">
         <article class="instrument reflex">
-          <h2>REFLEX</h2>
+          <h2 id="reflex-title">REFLEX</h2>
           <div class="reflex-body"><div class="dial" role="img" aria-label="Major damage risk with braking threshold notch"><div class="dial-face"></div><div id="threshold-notch" class="dial-notch"></div><div id="risk-needle" class="dial-needle"></div><strong id="risk-value">--</strong></div>
           <div class="reflex-metrics"><div id="threshold-label">Notch 0.35</div><span id="fast-latency">-- ms</span><span id="misses">0 MISSED</span></div></div>
         </article>
@@ -231,9 +238,10 @@
           <div class="freshness-track"><div id="freshness"></div></div>
         </article>
       </section>
-      <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="reset" disabled>RESET</button></div>
+      <div class="drive-buttons row"><button id="start" class="primary" disabled>START</button><button id="stop" hidden>STOP</button><button id="reset" disabled>RESET</button></div>
         <svg id="steering-wheel" viewBox="0 0 160 100" aria-label="Steering wheel follows reported lane-change progress"><path d="M22 94a60 60 0 1 1 116 0" fill="none" stroke="currentColor" stroke-width="13"/><path d="M25 46L80 67L135 46M80 67V98" fill="none" stroke="currentColor" stroke-width="12"/><circle cx="80" cy="62" r="18" fill="var(--cp-surface)" stroke="currentColor" stroke-width="6"/></svg>
-      <div class="presets" role="group" aria-label="Rehearsal moments"><button data-preset="1" aria-pressed="false" title="1 / Reflex" aria-label="1 / Reflex">1</button><button data-preset="2" aria-pressed="false" title="2 / Ambiguous" aria-label="2 / Ambiguous">2</button><button data-preset="3" aria-pressed="false" title="3 / Refused" aria-label="3 / Refused">3</button><button data-preset="4" aria-pressed="false" title="4 / Allowed" aria-label="4 / Allowed">4</button></div>
+      <div class="presets" role="group" aria-label="Rehearsal moments"><button data-preset="1" aria-pressed="false" title="1 / Reflex" aria-label="1 / Reflex">1</button><button data-preset="2" aria-pressed="false" title="2 / Ambiguous" aria-label="2 / Ambiguous">2</button><button data-preset="3" aria-pressed="false" title="3 / Refused" aria-label="3 / Refused">3</button><button data-preset="4" aria-pressed="false" title="4 / Allowed" aria-label="4 / Allowed">4</button><button id="free-drive" disabled title="Free drive requires live mode; staged moments remain available offline">FREE / LIVE ONLY</button></div>
+      <section id="drive-scoreboard" hidden aria-label="Drive scoreboard" role="status"><h2>DRIVE COMPLETE</h2><p id="drive-summary"></p><dl id="drive-score"></dl><p>Reset for another run.</p></section>
       <p id="model-error" role="alert"></p>
       <aside id="detail-panel" hidden aria-label="Controls, sensor input and decision details">
       <div class="detail-heading"><h2>Controls &amp; details</h2><button id="details-close">Close</button></div>
@@ -241,6 +249,8 @@
       <p id="caption">The world does not wait. Advice expires. Agreement is not authority.</p>
       <section class="controls" aria-label="Presenter controls">
         <div class="toolbar">
+          <label>Run<select id="run"><option value="staged">Staged moments</option><option value="free" disabled>Free drive / live only</option></select></label>
+          <label>Drive duration (s)<input id="duration" type="number" min="1" max="3600" step="1" value="120" required></label>
           <label>Mode<select id="mode"><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
           <label>Hazard<select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
           <label>Selected km/h<input id="speed" type="number" min="50" max="130" step="1" value="90" required></label>
@@ -248,6 +258,7 @@
           <label>Damage threshold<input id="threshold" type="number" min="0" max="1" step="0.01" value="0.35" required></label>
           <label>Staleness / ticks<input id="staleness" type="number" min="0" max="1000" step="1" value="3" required aria-describedby="staleness-help"></label>
         </div>
+        <p id="drive-availability"></p>
         <div id="staleness-help"></div>
       </section>
       <h3>World / trusted vehicle sensor</h3><div id="temperature-status"></div><div id="surface"></div><div id="lane-status"></div>
@@ -259,7 +270,7 @@
       <h3>Reflex / accepted result and deadlines</h3><div id="fast-model"></div><div id="fast-status"></div><div id="clear-value"></div><div id="deadline" role="status"></div><div id="fast-stamp"></div>
       <section class="debug" aria-label="Sensor input, teaching notes and tick history"><h3>Exact sensor input</h3>
         <p id="contact-description"></p><strong id="observation-stamp"></strong><pre id="observation"></pre>
-        <p>A missed major hazard costs more than unnecessary braking. The notch is deliberately below 0.5. Unknown or failed fast decisions default to brake. In Blocking mode fast actions and deadline defaults are suppressed while advice is pending, not physical motion.</p>
+        <p>A missed major hazard costs more than unnecessary braking. The notch is deliberately below 0.5. Unknown or failed fast decisions brake only while the sensed contact is in the occupied path. Once clear and no longer turning, the car accelerates toward selected speed. In Blocking mode fast actions and deadline defaults are suppressed while advice is pending, not physical motion.</p>
         <p>Staleness 3 rejects the default five-tick replay. Limit 6 permits its age, not its speed: the independent limit follows trusted outside temperature (normal grip, frost risk, ice risk). Temperature is never sent to either model. New same-tick fast actions win. Refused advice changes nothing. A later brake does not cancel a turn already underway.</p>
         <p>Recorded responses are real synthetic-input captures. Ambiguous samples were curated for the 0.35 versus 0.50 contrast. Slow replay repeats a captured recommendation, not adaptive reasoning. Timing and live results vary.</p>
         <pre id="tick-log"></pre>

@@ -1,4 +1,5 @@
 import type { Snapshot } from '../src/types.js';
+import { canStart, renderDrive } from './drive.js';
 
 function element(id: string): HTMLElement {
   const found = document.getElementById(id);
@@ -24,22 +25,29 @@ const staleness = inputControl('staleness');
 const hazard = hazardControl();
 const connection = element('connection');
 const errorMessage = element('error');
+let choosingRun = false;
+let latestSnapshot: Snapshot | undefined;
 
 function render(snapshot: Snapshot): void {
+  latestSnapshot = snapshot;
   const world = snapshot.world;
+  renderDrive(snapshot, choosingRun);
   if (document.activeElement !== speed) speed.value = String(world.selectedSpeedKmh);
   if (document.activeElement !== temperature) temperature.value = String(world.ambientTempC);
-  hazard.value = snapshot.hazardVariant;
-  hazard.disabled = snapshot.started || world.tick !== 0;
-  element('start').toggleAttribute('disabled', snapshot.started || world.outcome !== 'running');
+  hazard.value = snapshot.hazardVariant ?? '';
+  hazard.closest('label')?.toggleAttribute('hidden', snapshot.drive.kind === 'free');
+  hazard.disabled = choosingRun || snapshot.started || world.tick !== 0 || snapshot.drive.kind === 'free';
+  element('start').toggleAttribute('disabled', choosingRun || !canStart(snapshot));
+  element('reset').toggleAttribute('disabled', choosingRun);
   element('speed-value').textContent = `${speed.value} km/h selected`;
   element('actual-speed').textContent = `${world.speedKmh.toFixed(1)} km/h actual`;
   element('car-lane').textContent = world.laneChange
     ? `Car lane ${world.laneChange.fromLane} -> ${world.laneChange.toLane} (${world.laneChange.elapsedTicks}/${world.laneChange.durationTicks} ticks)`
     : `Car lane ${world.carLane}`;
   element('tick').textContent = `Tick ${world.tick}`;
-  element('range').textContent = `${world.distanceM.toFixed(0)} m`;
-  element('outcome').textContent = world.outcome + (world.braking && world.outcome === 'running' ? ' / braking' : '');
+  element('range').textContent = world.hazardActive ? `${world.distanceM.toFixed(0)} m` : 'No active contact';
+  element('outcome').textContent = snapshot.drive.kind === 'free' ? `${snapshot.drive.phase} / ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
+    : world.outcome + (world.braking && world.outcome === 'running' ? ' / braking' : '');
   element('observation').textContent = snapshot.observation;
   element('observation-stamp').textContent = snapshot.observationTick === null
     ? 'Preview only: no observation sent yet.'
@@ -50,7 +58,7 @@ function render(snapshot: Snapshot): void {
   element('road-surface').textContent = `ROAD: ${snapshot.scene.roadSurface.toUpperCase()}`;
   element('timing').textContent = `${snapshot.settings.tickMs} ms fixed clock`;
   element('physics').textContent =
-    `Braking ${snapshot.settings.brakeDecelMps2} m/s² / initial range ${snapshot.settings.initialHazardDistanceM} m`;
+    `Braking ${snapshot.settings.brakeDecelMps2} m/s² / acceleration ${snapshot.settings.accelMps2} m/s² / initial range ${snapshot.settings.initialHazardDistanceM} m`;
   element('backend').textContent = snapshot.backend === 'stub' ? 'STUB / recorded / no network' : 'LIVE / Foundry / Entra';
   element('model-name').textContent = snapshot.modelName;
   element('fast-status').textContent = snapshot.fast.status;
@@ -80,10 +88,11 @@ function render(snapshot: Snapshot): void {
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === snapshot.mode));
-    button.disabled = snapshot.started || world.tick !== 0;
+    button.disabled = choosingRun || snapshot.started || world.tick !== 0 || snapshot.drive.phase !== 'idle';
   }
   const advice = snapshot.advice;
-  const previousAdvice = advice.data !== null && advice.status !== 'ready';
+  const previousAdvice = advice.data !== null && (advice.status !== 'ready' ||
+    (snapshot.drive.kind === 'free' && snapshot.drive.phase !== 'episode'));
   const assessmentLabel = previousAdvice ? 'Previous assessment: ' : '';
   const age = advice.observedAtTick === null ? 0 : world.tick - advice.observedAtTick;
   element('advice-age').textContent = advice.observedAtTick === null ? 'No observation yet'
@@ -124,7 +133,8 @@ function render(snapshot: Snapshot): void {
   );
   const roadY = (distanceAheadM: number) => 350 - distanceAheadM * scale;
   element('contact').setAttribute('transform', `translate(${110 + (world.hazardLane - 1) * 160}, ${roadY(world.distanceM)})`);
-  const contactIdentity = snapshot.hazardVariant === 'ambiguous' ? world.identity : snapshot.hazardVariant;
+  element('contact').setAttribute('visibility', world.hazardActive ? 'visible' : 'hidden');
+  const contactIdentity = snapshot.drive.kind === 'free' || snapshot.hazardVariant === 'ambiguous' ? world.identity : snapshot.hazardVariant;
   element('contact-label').textContent = contactIdentity === null
     ? '?' : contactIdentity === 'elk' ? 'ELK' : 'SMALL';
   const contactImage = element('contact-image');
@@ -162,11 +172,11 @@ function render(snapshot: Snapshot): void {
     label.textContent = `${lane.clearAheadM ?? 0} m clear traffic`;
   }
   element('road-lines').style.strokeDashoffset =
-    String(-(snapshot.settings.initialHazardDistanceM - world.distanceM) * scale);
+    String(-world.distanceTravelledM * scale);
   element('tick-log').replaceChildren(...snapshot.log.map((entry) => {
     const row = document.createElement('li');
     const probability = (value: number | null) => value === null ? '?' : value.toFixed(2);
-    row.className = entry.supersession ? 'supersession' : '';
+    row.className = entry.supersession ? 'supersession' : entry.scenario ? 'scenario' : '';
     row.textContent = entry.supersession ? `#${entry.tick} ${entry.detail}`
       : `#${entry.tick} risk=${probability(entry.majorDamageRisk)} clear=${probability(entry.adjacentLaneClear)} / ${entry.detail}`;
     return row;
@@ -207,7 +217,7 @@ function render(snapshot: Snapshot): void {
   element('gate-log').replaceChildren(...records);
 }
 
-async function control(command: string, value?: string | number): Promise<void> {
+async function control(command: string, value?: string | number): Promise<boolean> {
   errorMessage.textContent = '';
   try {
     const response = await fetch('/api/control', {
@@ -220,13 +230,35 @@ async function control(command: string, value?: string | number): Promise<void> 
       throw new Error(failure.error ?? `Control failed: HTTP ${response.status}`);
     }
     // SSE is authoritative so an older HTTP response cannot rewind the scene.
+    return true;
   } catch (error) {
     errorMessage.textContent = error instanceof Error ? error.message : 'Control request failed.';
+    return false;
   }
 }
 
 element('start').addEventListener('click', () => { void control('start'); });
 element('reset').addEventListener('click', () => { void control('reset'); });
+element('stop').addEventListener('click', () => { void control('stop'); });
+async function chooseRun(value: string): Promise<void> {
+  choosingRun = true;
+  if (latestSnapshot) render(latestSnapshot);
+  try {
+    if (!await control('reset') || !await control('run', value)) return;
+    if (value === 'free') await control('mode', 'async_gated');
+  } finally {
+    choosingRun = false;
+    if (latestSnapshot) render(latestSnapshot);
+  }
+}
+element('free-drive').addEventListener('click', () => { void chooseRun('free'); });
+element('run').addEventListener('change', (event) => {
+  if (event.target instanceof HTMLSelectElement) void chooseRun(event.target.value);
+});
+inputControl('duration').addEventListener('change', () => {
+  const duration = inputControl('duration');
+  if (duration.reportValidity()) void control('duration', duration.valueAsNumber);
+});
 speed.addEventListener('input', () => {
   element('speed-value').textContent = `${speed.value} km/h selected`;
 });

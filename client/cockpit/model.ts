@@ -35,11 +35,12 @@ export function mapSnapshot(snapshot: Snapshot): CockpitView {
     lane: turning
       ? turning.fromLane + (turning.toLane - turning.fromLane) * turning.elapsedTicks / turning.durationTicks
       : world.carLane,
-    travelledM: settings.initialHazardDistanceM - world.distanceM,
+    travelledM: world.distanceTravelledM,
     identity: world.identity,
     fresh: decision === null ? 'off' : refused('stale_advice') ? 'bad' : 'good',
     permitted: decision === null ? 'off' : refused('prohibited_action') ? 'bad' : 'good',
-    historical: advice.data !== null && advice.status !== 'ready',
+    historical: advice.data !== null && (advice.status !== 'ready' ||
+      (snapshot.drive.kind === 'free' && snapshot.drive.phase !== 'episode')),
   };
 }
 
@@ -102,6 +103,10 @@ function lane(value: unknown): boolean {
   return value === 1 || value === 2 || value === 3;
 }
 
+function episodeId(value: unknown): boolean {
+  return finite(value) && Number.isSafeInteger(value) && value > 0;
+}
+
 function decision(value: unknown): value is GateDecision {
   return object(value) && (value.allowed === true || (value.allowed === false &&
     Array.isArray(value.reasons) && value.reasons.length > 0 && value.reasons.every((item: unknown) =>
@@ -112,6 +117,7 @@ function decision(value: unknown): value is GateDecision {
 function envelope(value: unknown): boolean {
   return object(value) && ['brake', 'continue', 'swerve'].includes(String(value.action)) &&
     ['fast', 'slow'].includes(String(value.source)) && lane(value.fromLane) &&
+    (value.episodeId === undefined || episodeId(value.episodeId)) &&
     (value.toLane === undefined || lane(value.toLane)) &&
     ['speedKmh', 'observedAtTick', 'proposedAtTick'].every((key) => finite(value[key]));
 }
@@ -128,24 +134,26 @@ export function parseSnapshot(text: string): Snapshot {
 
 function validSnapshot(value: unknown): value is Snapshot {
   if (!object(value) || !object(value.world) || !object(value.settings) || !object(value.fast) ||
-      !object(value.advice) || !object(value.scene)) return false;
-  const { world, settings, fast, advice, scene } = value;
+      !object(value.advice) || !object(value.scene) || !object(value.drive)) return false;
+  const { world, settings, fast, advice, scene, drive } = value;
   const change = world.laneChange;
   const data = advice.data;
+  const score = drive.score;
   return ['live', 'stub'].includes(String(value.backend)) &&
     ['fast_only', 'blocking', 'async_gated'].includes(String(value.mode)) &&
-    ['elk', 'small_animal', 'ambiguous'].includes(String(value.hazardVariant)) &&
+    (value.hazardVariant === null || ['elk', 'small_animal', 'ambiguous'].includes(String(value.hazardVariant))) &&
     typeof value.started === 'boolean' && finite(value.threshold) &&
     ['modelName', 'slowModelName', 'observation', 'actionStatus'].every((key) => typeof value[key] === 'string') &&
     nullableNumber(value.observationTick) &&
-    ['tick', 'speedKmh', 'selectedSpeedKmh', 'ambientTempC', 'distanceM'].every((key) => finite(world[key])) &&
+    ['tick', 'speedKmh', 'selectedSpeedKmh', 'ambientTempC', 'distanceM', 'distanceTravelledM'].every((key) => finite(world[key])) &&
+    typeof world.hazardActive === 'boolean' &&
     lane(world.carLane) && lane(world.hazardLane) && typeof world.braking === 'boolean' &&
     ['running', 'braked', 'swerved', 'continued', 'collision'].includes(String(world.outcome)) &&
     (world.identity === null || ['elk', 'small_animal'].includes(String(world.identity))) &&
     (change === null || (object(change) && lane(change.fromLane) && lane(change.toLane) &&
       finite(change.elapsedTicks) && finite(change.durationTicks) && change.durationTicks > 0 &&
       finite(change.startedAtTick))) &&
-    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
+    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'accelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
       .every((key) => finite(settings[key])) &&
     finite(settings.tickMs) && settings.tickMs > 0 &&
     finite(settings.stalenessLimitTicks) && settings.stalenessLimitTicks >= 0 &&
@@ -161,8 +169,17 @@ function validSnapshot(value: unknown): value is Snapshot {
     (advice.error === null || typeof advice.error === 'string') &&
     (data === null || (object(data) && ['swerve', 'brake', 'continue'].includes(String(data.action)) &&
       (data.targetLane === undefined || lane(data.targetLane)) && typeof data.rationale === 'string' &&
+      (data.episodeId === undefined || episodeId(data.episodeId)) &&
       ['observedAtTick', 'arrivedAtTick', 'latencyMs'].every((key) => finite(data[key])))) &&
+    (scene.contact === null || (object(scene.contact) && lane(scene.contact.lane) && finite(scene.contact.rangeM))) &&
     typeof scene.contactDescription === 'string' && scene.roadSurface === 'dry' &&
+    ['staged', 'free'].includes(String(drive.kind)) &&
+    ['idle', 'episode', 'dwell', 'gap', 'collision', 'finished'].includes(String(drive.phase)) &&
+    (drive.episodeId === null || episodeId(drive.episodeId)) &&
+    (drive.finishReason === null || ['duration', 'stopped'].includes(String(drive.finishReason))) &&
+    ['seed', 'durationS', 'elapsedS', 'phaseRemainingS'].every((key) => finite(drive[key])) &&
+    object(score) && ['hazardsFaced', 'avoidedByBraking', 'avoidedBySwerving', 'slowAllowed', 'slowRefused',
+      'staleAdvice', 'prohibitedAction', 'collisions', 'deadlineMisses'].every((key) => finite(score[key])) &&
     Array.isArray(scene.lanes) && scene.lanes.length === 3 && scene.lanes.every((item: unknown) =>
       object(item) && lane(item.lane) && nullableNumber(item.vehicleBehindM) && nullableNumber(item.clearAheadM)) &&
     Array.isArray(value.gate) && value.gate.every((record: unknown) =>
@@ -173,6 +190,9 @@ function validSnapshot(value: unknown): value is Snapshot {
       object(entry) && finite(entry.tick) && typeof entry.detail === 'string' &&
       nullableNumber(entry.majorDamageRisk) && nullableNumber(entry.adjacentLaneClear) &&
       typeof entry.deadlineMissed === 'boolean' &&
+      (entry.scenario === undefined || (object(entry.scenario) &&
+        (entry.scenario.episodeId === null || episodeId(entry.scenario.episodeId)) &&
+        ['spawn', 'stopped', 'clear', 'passed', 'collision', 'resume', 'finished'].includes(String(entry.scenario.event)))) &&
       (entry.supersession === undefined || (object(entry.supersession) &&
         applied(entry.supersession.previous) && envelope(entry.supersession.envelope))));
 }

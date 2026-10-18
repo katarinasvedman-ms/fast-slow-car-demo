@@ -9,6 +9,11 @@ export interface Config {
   frostRiskTempC: number;
   iceRiskTempC: number;
   brakeDecelMps2: number;
+  accelMps2: number;
+  driveSeed: number;
+  driveDurationS: number;
+  driveGapS: number;
+  driveDwellS: number;
   initialHazardDistanceM: number;
   stub: boolean;
   stubSlowDelayTicks: number;
@@ -79,6 +84,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     frostRiskTempC,
     iceRiskTempC,
     brakeDecelMps2: numberSetting(env, 'BRAKE_DECEL_MPS2', 1.5, 0.01, 100),
+    accelMps2: numberSetting(env, 'ACCEL_MPS2', 2, 0.01, 100),
+    driveSeed: numberSetting(env, 'DRIVE_SEED', 42, 0, 0xffffffff, true),
+    driveDurationS: numberSetting(env, 'DRIVE_DURATION_S', 120, 1, 3600, true),
+    driveGapS: numberSetting(env, 'DRIVE_GAP_S', 15, 0, 300),
+    driveDwellS: numberSetting(env, 'DRIVE_DWELL_S', 3, 0, 300),
     initialHazardDistanceM: numberSetting(env, 'INITIAL_HAZARD_DISTANCE_M', 500, 0.01, 100_000),
     stub: env.STUB === '1',
     stubSlowDelayTicks: numberSetting(env, 'STUB_SLOW_DELAY_TICKS', 5, 0, 1000, true),

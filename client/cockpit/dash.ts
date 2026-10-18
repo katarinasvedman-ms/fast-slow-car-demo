@@ -1,4 +1,5 @@
 import type { CockpitEvent, CockpitView } from './model.js';
+import { canStart, renderDrive } from '../drive.js';
 
 export function element(id: string): HTMLElement {
   const node = document.getElementById(id);
@@ -38,12 +39,17 @@ function animate(id: string, name: string): void {
 export function renderDash(view: CockpitView, events: CockpitEvent[], busy: boolean): void {
   const { snapshot, identity } = view;
   const { world, fast, advice, settings } = snapshot;
+  renderDrive(snapshot, busy);
   text('backend', snapshot.backend === 'stub' ? 'STUB / OFFLINE' : 'LIVE / FOUNDRY');
   text('tick', `TICK ${world.tick} / ${settings.tickMs} ms`);
   text('speed-value', world.speedKmh.toFixed(0));
   text('speed-label', !snapshot.started && world.tick === 0 ? 'SELECTED KM/H / IDLE' : 'ACTUAL KM/H');
   text('distance', `${world.distanceM.toFixed(0)} m`);
-  text('motion-status', !snapshot.started && world.tick === 0 ? 'READY TO START'
+  text('motion-status', snapshot.drive.phase === 'collision' ? 'COLLISION / PRESS START'
+    : snapshot.drive.phase === 'finished' ? 'DRIVE COMPLETE'
+    : snapshot.drive.phase === 'dwell' ? `SCENARIO CLEAR IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
+    : snapshot.drive.phase === 'gap' ? `NEXT CONTACT IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
+    : !snapshot.started && world.tick === 0 ? 'READY TO START'
     : world.outcome !== 'running' ? world.outcome.toUpperCase()
       : world.laneChange ? `CHANGING TO LANE ${world.laneChange.toLane}` : world.braking ? 'BRAKING' : 'ON COURSE');
   text('surface', `ROAD ${snapshot.scene.roadSurface.toUpperCase()} / LANE ${world.carLane}`);
@@ -52,6 +58,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
     caption.textContent = caption.dataset.message + (!snapshot.started && world.tick === 0 ? ' Press Start.' : '');
   }
   text('contact-description', snapshot.scene.contactDescription);
+  element('sensor').hidden = !world.hazardActive;
   text('contact-name', identity === null ? 'THERMAL / RADAR CONTACT'
     : identity === 'elk' ? 'ELK' : 'SMALL ANIMAL');
   element('thermal-contact').hidden = identity !== null;
@@ -89,11 +96,15 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
     `L${lane.lane}: ${lane.vehicleBehindM !== null ? 'BLOCKED' : `${lane.clearAheadM ?? 0} m CLEAR`}`).join(' / '));
   text('fast-model', snapshot.modelName);
   const risk = fast.majorDamageRisk;
+  const completedEpisode = snapshot.drive.kind === 'free' && snapshot.drive.phase !== 'episode' && snapshot.drive.phase !== 'idle';
+  text('reflex-title', completedEpisode ? 'REFLEX / LAST' : 'REFLEX');
   text('risk-value', risk === null ? '--' : risk.toFixed(2));
   element('risk-needle').hidden = risk === null;
-  text('fast-status', fast.status === 'error' ? 'SERVICE ERROR / BRAKE'
+  const fallback = snapshot.scene.contact && (snapshot.scene.contact.lane === world.carLane ||
+    snapshot.scene.contact.lane === world.laneChange?.toLane) ? 'BRAKE' : 'PATH CLEAR';
+  text('fast-status', fast.status === 'error' ? `SERVICE ERROR / ${fallback}`
     : fast.status === 'idle' ? 'AWAITING START'
-      : risk === null && fast.status === 'ready' ? 'NO ANSWER / BRAKE'
+      : risk === null && fast.status === 'ready' ? `NO ANSWER / ${fallback}`
         : fast.status.toUpperCase());
   element('risk-needle').style.transform = `rotate(${-120 + (risk ?? 0) * 240}deg)`;
   element('threshold-notch').style.transform = `rotate(${-120 + snapshot.threshold * 240}deg)`;
@@ -118,14 +129,15 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   text('gate-rule', `AGE > ${settings.stalenessLimitTicks} TICKS / SWERVE > ${settings.swerveSpeedLimit} KM/H`);
   text('temperature-status', `OUTSIDE ${world.ambientTempC} °C / ${settings.swerveTier.toUpperCase()} / LIMIT ${settings.swerveSpeedLimit} KM/H`);
   text('gate-temperature', `${world.ambientTempC} °C / ${settings.swerveTier} / ${settings.swerveSpeedLimit} km/h`);
-  text('advice-status', snapshot.mode === 'fast_only' ? 'FAST ONLY / ADVISER DISABLED'
+  text('advice-status', completedEpisode ? 'EPISODE ENDED / NO NEW REQUESTS'
+    : snapshot.mode === 'fast_only' ? 'FAST ONLY / ADVISER DISABLED'
     : advice.status === 'thinking' ? `THINKING / ${view.age ?? 0} TICKS`
       : advice.status === 'error' ? 'ADVICE FAILED' : advice.status === 'idle' ? 'AWAITING START' : 'ASSESSMENT RECEIVED');
   element('thinking-ring').classList.toggle('thinking', advice.status === 'thinking');
   text('advice-action', advice.data
     ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / LANE ${advice.data.targetLane}` : ''}`
     : advice.status === 'thinking' ? 'THINKING' : advice.status === 'error' ? 'ADVICE FAILED' : 'NO ADVICE YET');
-  text('advice-history', view.historical ? `Previous / ${advice.status}`
+  text('advice-history', view.historical ? completedEpisode ? 'Previous episode' : `Previous / ${advice.status}`
     : advice.application?.split(' - ')[0] ?? (advice.data ? 'Recommendation' : snapshot.mode === 'fast_only' ? 'Disabled / fast only' : 'Awaiting advice'));
   const rationale = advice.data?.rationale ?? 'The world keeps moving while reasoning works.';
   text('advice-rationale', rationale.split(/(?<=[.!?])\s/)[0] ?? rationale);
@@ -149,18 +161,20 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   element('cockpit').classList.toggle('braking', world.braking);
   element('outcome-card').hidden = world.outcome === 'running';
   text('outcome-title', world.outcome.toUpperCase());
-  text('outcome-detail', world.outcome === 'braked' ? 'Stopped. Pending allowed advice may still revise braking.'
+  text('outcome-detail', snapshot.drive.kind === 'free' ? 'Free-drive scenario lifecycle; see running-time status and scenario log.'
+    : world.outcome === 'braked' ? 'Stopped. Pending allowed advice may still revise braking.'
     : 'Physical world frozen. Reset to rehearse again.');
   text('observation', snapshot.observation);
   text('observation-stamp', snapshot.observationTick === null ? 'UNSENT PREVIEW'
     : `EXACT CAPTURED INPUT / TICK ${snapshot.observationTick}`);
   text('tick-log', snapshot.log.slice(0, 12).map((entry) => `#${entry.tick} ${entry.detail}`).join('\n'));
   text('staleness-help', `${settings.stalenessLimitTicks} ticks = ${(settings.stalenessLimitTicks * settings.tickMs / 1000).toFixed(1)} s. Age equal to limit is allowed. Reset to retry refused advice.`);
-  const locked = busy || snapshot.started || world.tick !== 0;
+  const locked = busy || snapshot.started || world.tick !== 0 || snapshot.drive.phase !== 'idle';
   select('mode').disabled = locked;
-  select('hazard').disabled = locked;
+  select('hazard').disabled = locked || snapshot.drive.kind === 'free';
   select('mode').value = snapshot.mode;
-  select('hazard').value = snapshot.hazardVariant;
+  select('hazard').value = snapshot.hazardVariant ?? '';
+  select('hazard').closest('label')?.toggleAttribute('hidden', snapshot.drive.kind === 'free');
   for (const [id, value] of [
     ['speed', world.selectedSpeedKmh], ['temperature', world.ambientTempC],
     ['threshold', snapshot.threshold], ['staleness', settings.stalenessLimitTicks],
@@ -169,7 +183,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
     if (document.activeElement !== control) control.value = String(value);
     control.disabled = busy;
   }
-  element('start').toggleAttribute('disabled', busy || snapshot.started || world.outcome !== 'running');
+  element('start').toggleAttribute('disabled', busy || !canStart(snapshot));
   element('reset').toggleAttribute('disabled', busy);
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-preset]')) button.disabled = busy;
   for (const event of events) {

@@ -539,7 +539,7 @@ test('a later fast action may release a brake and a subsequent new brake may sup
   assert.equal(simulation.snapshot().gate[0]?.supersedes?.atTick, 1);
 });
 
-test('a stopped brake can be revised by pending permitted advice without inventing acceleration', async (context) => {
+test('a stopped brake can be revised by pending permitted advice, with acceleration only after clearing the turn', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   const pending = deferred<SlowResult>();
   const simulation = new Simulation(loadConfig({ BRAKE_DECEL_MPS2: '100' }), fakeModels({
@@ -560,7 +560,11 @@ test('a stopped brake can be revised by pending permitted advice without inventi
   for (let i = 0; i < 3; i += 1) { context.mock.timers.tick(400); await flush(); }
   assert.equal(simulation.snapshot().world.speedKmh, 0);
   assert.equal(simulation.snapshot().world.carLane, 3);
-  assert.equal(simulation.snapshot().world.outcome, 'braked');
+  assert.equal(simulation.snapshot().world.outcome, 'running');
+  assert.equal(simulation.snapshot().world.braking, false);
+  context.mock.timers.tick(400);
+  await flush();
+  assert.ok(Math.abs(simulation.snapshot().world.speedKmh - 2 * 0.4 * 3.6) < 1e-9);
 });
 
 test('elapsed deadline wins over success or failure even if the timer callback has not run', async (context) => {
@@ -587,6 +591,50 @@ test('elapsed deadline wins over success or failure even if the timer callback h
     assert.equal(simulation.snapshot().fast.missedDeadlines, 1);
     assert.equal(simulation.snapshot().world.braking, true);
     assert.equal(simulation.snapshot().fast.majorDamageRisk, null);
+    simulation.dispose();
+  }
+});
+
+test('after a completed turn, high risk, unknown, errors and deadline defaults all release braking and recover speed', async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  for (const response of ['high', 'unknown', 'error', 'deadline']) {
+    const pending = deferred<SlowResult>();
+    let calls = 0;
+    let slowCalls = 0;
+    const simulation = new Simulation(loadConfig({}), fakeModels({
+      fast: { name: 'Path recovery test', async decide() {
+        if (++calls <= 4 || response === 'high') return brake;
+        if (response === 'error') throw new Error('Visible clear-path failure.');
+        if (response === 'deadline') return new Promise<FastResult>(() => {});
+        return { majorDamageRisk: null, adjacentLaneClear: null, latencyMs: 1 };
+      } },
+      slow: { name: 'Turn once', advise: () => ++slowCalls === 1 ? pending.promise : new Promise(() => {}) },
+    }), () => Date.now());
+    context.after(() => simulation.dispose());
+    simulation.start();
+    await flush();
+    context.mock.timers.tick(400);
+    await flush();
+    pending.resolve(swerve);
+    await flush();
+    for (let i = 0; i < 2; i += 1) {
+      context.mock.timers.tick(400);
+      await flush();
+      assert.equal(simulation.snapshot().world.braking, true);
+      assert.equal(simulation.snapshot().world.carLane, 2);
+    }
+    context.mock.timers.tick(400);
+    await flush();
+    context.mock.timers.tick(350);
+    await flush();
+    const clear = simulation.snapshot();
+    assert.equal(clear.world.carLane, 3);
+    assert.equal(clear.world.laneChange, null);
+    assert.equal(clear.world.braking, false, response);
+    if (response === 'deadline') assert.equal(clear.fast.missedDeadlines, 1);
+    context.mock.timers.tick(50);
+    await flush();
+    assert.ok(Math.abs(simulation.snapshot().world.speedKmh - clear.world.speedKmh - 2.88) < 1e-9, response);
     simulation.dispose();
   }
 });

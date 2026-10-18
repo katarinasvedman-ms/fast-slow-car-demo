@@ -4,6 +4,31 @@ export type Outcome = 'running' | 'braked' | 'swerved' | 'continued' | 'collisio
 export type Action = 'swerve' | 'brake' | 'continue';
 export type Mode = 'fast_only' | 'blocking' | 'async_gated';
 export type SwerveTier = 'normal grip' | 'frost risk' | 'ice risk';
+export type RunKind = 'staged' | 'free';
+
+export interface DriveScore {
+  hazardsFaced: number;
+  avoidedByBraking: number;
+  avoidedBySwerving: number;
+  slowAllowed: number;
+  slowRefused: number;
+  staleAdvice: number;
+  prohibitedAction: number;
+  collisions: number;
+  deadlineMisses: number;
+}
+
+export interface DriveView {
+  kind: RunKind;
+  phase: 'idle' | 'episode' | 'dwell' | 'gap' | 'collision' | 'finished';
+  episodeId: number | null;
+  seed: number;
+  durationS: number;
+  elapsedS: number;
+  phaseRemainingS: number;
+  finishReason: 'duration' | 'stopped' | null;
+  score: DriveScore;
+}
 
 export interface FastResult {
   majorDamageRisk: number | null;
@@ -21,6 +46,7 @@ export interface SlowResult {
 export interface Advice extends SlowResult {
   observedAtTick: number;
   arrivedAtTick: number;
+  episodeId?: number;
 }
 
 export interface ActionEnvelope {
@@ -31,6 +57,7 @@ export interface ActionEnvelope {
   source: 'fast' | 'slow';
   observedAtTick: number;
   proposedAtTick: number;
+  episodeId?: number;
 }
 
 export interface GateRefusal {
@@ -68,6 +95,8 @@ export interface WorldState {
   speedKmh: number;
   selectedSpeedKmh: number;
   ambientTempC: number;
+  distanceTravelledM: number;
+  hazardActive: boolean;
   carLane: Lane;
   laneChange: LaneChange | null;
   hazard: { lane: Lane; distanceM: number; kind: 'elk' | 'small_animal' };
@@ -84,6 +113,8 @@ export interface WorldView {
   speedKmh: number;
   selectedSpeedKmh: number;
   ambientTempC: number;
+  distanceTravelledM: number;
+  hazardActive: boolean;
   carLane: Lane;
   laneChange: LaneChange | null;
   hazardLane: Lane;
@@ -99,10 +130,12 @@ export interface TickEntry {
   majorDamageRisk: number | null;
   adjacentLaneClear: number | null;
   deadlineMissed: boolean;
+  scenario?: { episodeId: number | null; event: 'spawn' | 'stopped' | 'clear' | 'passed' | 'collision' | 'resume' | 'finished' };
   supersession?: { previous: AppliedAction; envelope: ActionEnvelope };
 }
 
 export interface SceneView {
+  contact: { lane: Lane; rangeM: number } | null;
   contactDescription: string;
   roadSurface: WorldState['roadSurface'];
   lanes: {
@@ -119,8 +152,9 @@ export interface Snapshot {
   mode: Mode;
   threshold: number;
   started: boolean;
+  drive: DriveView;
   world: WorldView;
-  hazardVariant: HazardVariant;
+  hazardVariant: HazardVariant | null;
   observation: string;
   observationTick: number | null;
   scene: SceneView;
@@ -129,6 +163,7 @@ export interface Snapshot {
     tickBudgetMs: number;
     initialHazardDistanceM: number;
     brakeDecelMps2: number;
+    accelMps2: number;
     stalenessLimitTicks: number;
     swerveSpeedLimit: number;
     swerveTier: SwerveTier;

@@ -1,10 +1,11 @@
-import type { HazardVariant, Mode } from '../../src/types.js';
+import type { HazardVariant, Mode, RunKind } from '../../src/types.js';
 
 export type Control =
-  | { command: 'start' | 'reset' }
+  | { command: 'start' | 'reset' | 'stop' }
+  | { command: 'run'; value: RunKind }
   | { command: 'mode'; value: Mode }
   | { command: 'hazard'; value: HazardVariant }
-  | { command: 'speed' | 'temperature' | 'threshold' | 'staleness'; value: number };
+  | { command: 'speed' | 'temperature' | 'threshold' | 'staleness' | 'duration'; value: number };
 
 export type SendControl = (control: Control) => Promise<void>;
 
@@ -19,6 +20,7 @@ export function presetCommands(moment: number, alternate = false): Control[] {
   if (!Number.isInteger(moment) || moment < 1 || moment > 4) throw new Error('Unknown presenter moment.');
   return [
     { command: 'reset' },
+    { command: 'run', value: 'staged' },
     { command: 'mode', value: moment <= 2 ? 'fast_only' : 'async_gated' },
     { command: 'hazard', value: moment === 2 ? 'ambiguous' : 'elk' },
     { command: 'speed', value: 90 },

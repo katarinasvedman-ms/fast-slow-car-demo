@@ -12,12 +12,12 @@ import { flush } from './helpers.js';
 test('answer variants are narrowed; unknown is not false and the threshold boundary brakes', () => {
   const answers = { major_damage_risk: { type: 'noul', noul: 0.35 }, adjacent_lane_clear: { type: 'noul', noul: 0.9 } };
   const result = { ...parseFastAnswers(answers), latencyMs: 1 };
-  assert.equal(fastAction(result, 0.35), 'brake');
-  assert.equal(fastAction({ ...result, majorDamageRisk: 0.349 }, 0.35), 'continue');
+  assert.equal(fastAction(result, 0.35, true), 'brake');
+  assert.equal(fastAction({ ...result, majorDamageRisk: 0.349 }, 0.35, true), 'continue');
   const refused = parseFastAnswers({ ...answers, major_damage_risk: { type: 'refusal' } });
   assert.equal(refused.majorDamageRisk, null);
-  assert.equal(fastAction({ ...refused, latencyMs: 1 }, 0.35), 'brake');
-  assert.equal(fastAction({ ...result, majorDamageRisk: 0.1, adjacentLaneClear: null }, 0.35), 'brake');
+  assert.equal(fastAction({ ...refused, latencyMs: 1 }, 0.35, true), 'brake');
+  assert.equal(fastAction({ ...result, majorDamageRisk: 0.1, adjacentLaneClear: null }, 0.35, true), 'brake');
   for (const value of [-0.1, 1.1, NaN, undefined]) {
     assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'noul', noul: value } }));
   }
@@ -170,10 +170,11 @@ test('recorded reasoning is initially prohibited at 90 but fresh reassessment ca
         assert.deepEqual(reassessed.advice.gate, { allowed: true });
         assert.equal(reassessed.world.laneChange?.toLane, 3);
       }
-      for (let ms = 0; ms < 18_000; ms += 20) { scenario.mock.timers.tick(20); await flush(); }
+      for (let ms = 0; ms < 32_000; ms += 20) { scenario.mock.timers.tick(20); await flush(); }
       assert.equal(simulation.snapshot().world.carLane, 3);
-      assert.equal(simulation.snapshot().world.outcome, 'braked');
-      assert.equal(simulation.snapshot().world.speedKmh, 0);
+      assert.equal(simulation.snapshot().world.outcome, 'swerved');
+      assert.equal(simulation.snapshot().world.braking, false);
+      assert.equal(simulation.snapshot().world.speedKmh, speed);
     });
   }
 });

@@ -31,6 +31,7 @@ test('cockpit keeps identity concealed, follows reported turn progress, and pres
   value.hazardVariant = 'elk';
   value.world.tick = 5;
   value.world.distanceM = 450;
+  value.world.distanceTravelledM = 50;
   value.world.laneChange = { fromLane: 2, toLane: 3, startedAtTick: 4, elapsedTicks: 1, durationTicks: 3 };
   value.advice.observedAtTick = 0;
   value.advice.gate = record().decision;
@@ -59,6 +60,10 @@ test('cockpit handles zero staleness and retains previous advice while reassessi
   value.world.tick = 1;
   assert.equal(mapSnapshot(value).freshness, 0);
   assert.equal(mapSnapshot(value).snapshot.fast.majorDamageRisk, null);
+  value.drive.kind = 'free';
+  value.drive.phase = 'gap';
+  value.advice.status = 'ready';
+  assert.equal(mapSnapshot(value).historical, true);
 });
 
 test('cockpit event tracking deduplicates gate results, distinguishes application, and clears on reset/reconnect', () => {
@@ -88,6 +93,15 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   const malformed = JSON.parse(JSON.stringify(value));
   malformed.advice.gate.reasons[0].reason = 'invented';
   assert.throws(() => parseSnapshot(JSON.stringify(malformed)), /Invalid cockpit state/);
+  for (const mutate of [
+    (state: Snapshot) => { state.drive.episodeId = -1; },
+    (state: Snapshot) => { state.drive.score.collisions = NaN; },
+    (state: Snapshot) => { state.scene.contact = { lane: 2, rangeM: NaN }; },
+  ]) {
+    const invalid = structuredClone(value);
+    mutate(invalid);
+    assert.throws(() => parseSnapshot(JSON.stringify(invalid)), /Invalid cockpit state/);
+  }
 });
 
 test('presenter serializes preset controls, waits before Start, and stops a failing preset', async () => {
@@ -113,7 +127,7 @@ test('presenter serializes preset controls, waits before Start, and stops a fail
     if (command.command === 'mode') throw new Error('Control rejected.');
   }, () => {});
   await assert.rejects(runFailure(presetCommands(3)), /Control rejected/);
-  assert.deepEqual(failed.map((command) => command.command), ['reset', 'mode']);
+  assert.deepEqual(failed.map((command) => command.command), ['reset', 'run', 'mode']);
   await runFailure([{ command: 'reset' }]);
-  assert.equal(failed.length, 3);
+  assert.equal(failed.length, 4);
 });

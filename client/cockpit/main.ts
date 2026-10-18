@@ -1,4 +1,5 @@
 import { CockpitAudio } from './audio.js';
+import { canStart } from '../drive.js';
 import { createControls } from './controls.js';
 import type { Control } from './controls.js';
 import { element, input, renderDash, select } from './dash.js';
@@ -46,7 +47,7 @@ function execute(commands: Control[]): void {
 }
 
 function start(): void {
-  if (busy || !current || current.snapshot.started || current.snapshot.world.outcome !== 'running') return;
+  if (busy || !current || !canStart(current.snapshot)) return;
   // Resume in the click/keyboard gesture, not after the HTTP operation.
   void audio.start().catch((failure: unknown) =>
     reportError(failure instanceof Error ? `Audio unavailable: ${failure.message}` : 'Audio unavailable.'));
@@ -61,6 +62,17 @@ function mute(): void {
 
 element('start').addEventListener('click', start);
 element('reset').addEventListener('click', () => execute([{ command: 'reset' }]));
+element('stop').addEventListener('click', () => execute([{ command: 'stop' }]));
+element('free-drive').addEventListener('click', () => execute([
+  { command: 'reset' }, { command: 'run', value: 'free' }, { command: 'mode', value: 'async_gated' },
+]));
+select('run').addEventListener('change', () => {
+  const value = select('run').value;
+  if (value === 'free' || value === 'staged') execute([
+    { command: 'reset' }, { command: 'run', value },
+    ...(value === 'free' ? [{ command: 'mode', value: 'async_gated' } as const] : []),
+  ]);
+});
 element('mute').addEventListener('click', mute);
 select('mode').addEventListener('change', () => {
   const value = select('mode').value;
@@ -70,7 +82,7 @@ select('hazard').addEventListener('change', () => {
   const value = select('hazard').value;
   if (value === 'elk' || value === 'small_animal' || value === 'ambiguous') execute([{ command: 'hazard', value }]);
 });
-for (const command of ['speed', 'temperature', 'threshold', 'staleness'] as const) {
+for (const command of ['speed', 'temperature', 'threshold', 'staleness', 'duration'] as const) {
   const control = input(command);
   control.addEventListener('change', () => {
     if (control.reportValidity()) execute([{ command, value: control.valueAsNumber }]);

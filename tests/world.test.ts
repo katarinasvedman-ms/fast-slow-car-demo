@@ -5,6 +5,7 @@ import { buildObservation, observeScene } from '../src/observation.js';
 import { Simulation } from '../src/simulation.js';
 import { advanceWorld, applyAction, createWorld, publicWorld, setWorldSpeed } from '../src/world.js';
 import { fakeModels, flush } from './helpers.js';
+import { fastAction, hazardInPath } from '../src/policy.js';
 
 test('gradual braking integrates distance, preserves braking on speed changes, and stops without negative speed', () => {
   const config = loadConfig({ TICK_MS: '600', TICK_BUDGET_MS: '550', BRAKE_DECEL_MPS2: '2' });
@@ -49,6 +50,47 @@ test('ground truth resolves collision, safe passage, and blocked swerves without
   assert.equal(advanceWorld(advanceWorld(clear, config), config).outcome, 'swerved');
   assert.equal(applyAction(elk, 'swerve', 1).outcome, 'collision');
   assert.throws(() => applyAction(elk, 'swerve', 2));
+});
+
+test('sensor path includes both occupied lanes during a turn, and fast decisions never brake outside it', () => {
+  const car = createWorld(loadConfig({}));
+  const turning = applyAction(car, 'swerve', 3);
+  assert.equal(hazardInPath({ lane: 2, rangeM: 100 }, turning), true);
+  assert.equal(hazardInPath({ lane: 3, rangeM: 100 }, turning), true);
+  assert.equal(hazardInPath({ lane: 1, rangeM: 100 }, turning), false);
+  assert.equal(hazardInPath(null, turning), false);
+  assert.equal(hazardInPath({ lane: 2, rangeM: 100 }, { ...car, carLane: 3 }), false);
+  for (const result of [
+    { majorDamageRisk: 0.9, adjacentLaneClear: 0.9, latencyMs: 1 },
+    { majorDamageRisk: null, adjacentLaneClear: null, latencyMs: 1 },
+    { majorDamageRisk: 0.1, adjacentLaneClear: null, latencyMs: 1 },
+  ]) {
+    assert.equal(fastAction(result, 0.35, true), 'brake');
+    assert.equal(fastAction(result, 0.35, false), 'continue');
+  }
+});
+
+test('clear-path recovery integrates acceleration and caps speed, but cannot accelerate during a turn or in the hazard path', () => {
+  const config = loadConfig({ ACCEL_MPS2: '2' });
+  const original = createWorld(config);
+  const slow = { ...original, carLane: 3 as const, speedKmh: 36 };
+  const accelerated = advanceWorld(slow, config);
+  assert.ok(Math.abs(accelerated.speedKmh - 38.88) < 1e-9);
+  assert.ok(Math.abs(accelerated.distanceTravelledM - (10 * 0.4 + 0.5 * 2 * 0.4 ** 2)) < 1e-9);
+  const capped = advanceWorld({ ...slow, selectedSpeedKmh: 37 }, config);
+  assert.equal(capped.speedKmh, 37);
+  const untilCap = (37 / 3.6 - 10) / 2;
+  assert.ok(Math.abs(capped.distanceTravelledM - (10 * 0.4 + 2 * untilCap * (0.4 - untilCap / 2))) < 1e-9);
+  const turning = applyAction({ ...original, speedKmh: 36 }, 'swerve', 3);
+  assert.equal(advanceWorld(turning, config).speedKmh, 36);
+  assert.equal(advanceWorld({ ...original, speedKmh: 36 }, config).speedKmh, 36);
+  assert.ok(advanceWorld({ ...slow, braking: true }, config).speedKmh < 36);
+  const gap = advanceWorld({ ...original, hazardActive: false, speedKmh: 0 }, config);
+  assert.ok(Math.abs(gap.speedKmh - 2.88) < 1e-9);
+  assert.equal(gap.hazard.distanceM, original.hazard.distanceM);
+  assert.equal(observeScene(gap, 'elk').contact, null);
+  assert.equal(observeScene(gap, 'elk').contactDescription, 'No active sensor contact.');
+  assert.throws(() => buildObservation(gap, 'elk'), /active sensor contact/);
 });
 
 test('observations contain only derived sensors; public snapshots conceal truth until the outcome', () => {
@@ -160,7 +202,8 @@ test('fixed clock advances independently and reset stops old ticks', async (cont
   assert.ok(simulation.snapshot().world.distanceM < before);
   simulation.setSpeed(130);
   assert.equal(simulation.snapshot().world.tick, 3);
-  assert.equal(simulation.snapshot().world.speedKmh, 130);
+  assert.equal(simulation.snapshot().world.speedKmh, 90);
+  assert.equal(simulation.snapshot().world.selectedSpeedKmh, 130);
   simulation.reset();
   context.mock.timers.tick(800);
   assert.equal(simulation.snapshot().world.tick, 0);

@@ -1,5 +1,7 @@
 import type { Config } from './config.js';
 import type { Action, HazardVariant, Lane, WorldState, WorldView } from './types.js';
+import { senseContact } from './observation.js';
+import { hazardInPath } from './policy.js';
 
 export function createWorld(
   config: Config,
@@ -12,6 +14,8 @@ export function createWorld(
     speedKmh: selectedSpeedKmh,
     selectedSpeedKmh,
     ambientTempC,
+    distanceTravelledM: 0,
+    hazardActive: true,
     carLane: 2,
     laneChange: null,
     hazard: {
@@ -32,15 +36,18 @@ export function advanceWorld(world: WorldState, config: Config): WorldState {
   if (world.outcome !== 'running') return { ...world, tick: world.tick + 1 };
   const dt = config.tickMs / 1000;
   const speedMps = world.speedKmh / 3.6;
+  const accelerating = !world.braking && world.laneChange === null && !hazardInPath(senseContact(world), world);
+  const acceleration = accelerating && speedMps < world.selectedSpeedKmh / 3.6 ? config.accelMps2 : 0;
+  const acceleratingFor = acceleration > 0 ? Math.min(dt, (world.selectedSpeedKmh / 3.6 - speedMps) / acceleration) : 0;
   const elapsedMoving = world.braking
     ? Math.min(dt, speedMps / config.brakeDecelMps2)
     : dt;
   const nextSpeed = world.braking
     ? Math.max(0, speedMps - config.brakeDecelMps2 * dt)
-    : speedMps;
+    : speedMps + acceleration * acceleratingFor;
   const distanceTravelled = world.braking
     ? speedMps * elapsedMoving - 0.5 * config.brakeDecelMps2 * elapsedMoving ** 2
-    : speedMps * dt;
+    : speedMps * dt + acceleration * acceleratingFor * (dt - acceleratingFor / 2);
   const distanceM = world.hazard.distanceM - distanceTravelled;
   const moving = world.laneChange
     ? { ...world.laneChange, elapsedTicks: world.laneChange.elapsedTicks + 1 }
@@ -49,12 +56,12 @@ export function advanceWorld(world: WorldState, config: Config): WorldState {
   const carLane = completed ? moving.toLane : world.carLane;
   const laneChange = completed ? null : moving;
   let outcome: WorldState['outcome'] = world.outcome;
-  if (distanceM <= 0) {
+  if (world.hazardActive && distanceM <= 0) {
     const occupiesHazardLane = carLane === world.hazard.lane || laneChange?.toLane === world.hazard.lane;
     outcome = occupiesHazardLane && world.hazard.kind === 'elk'
       ? 'collision'
       : carLane !== world.hazard.lane ? 'swerved' : 'continued';
-  } else if (nextSpeed === 0 && laneChange === null) {
+  } else if (world.hazardActive && nextSpeed === 0 && laneChange === null && carLane === world.hazard.lane) {
     outcome = 'braked';
   }
   return {
@@ -62,8 +69,9 @@ export function advanceWorld(world: WorldState, config: Config): WorldState {
     tick: world.tick + 1,
     carLane,
     laneChange,
-    speedKmh: nextSpeed * 3.6,
-    hazard: { ...world.hazard, distanceM: Math.max(0, distanceM) },
+    speedKmh: accelerating ? Math.min(world.selectedSpeedKmh, nextSpeed * 3.6) : nextSpeed * 3.6,
+    distanceTravelledM: world.distanceTravelledM + distanceTravelled,
+    hazard: { ...world.hazard, distanceM: world.hazardActive ? Math.max(0, distanceM) : world.hazard.distanceM },
     outcome,
   };
 }
@@ -95,7 +103,7 @@ export function setWorldSpeed(world: WorldState, selectedSpeedKmh: number): Worl
     selectedSpeedKmh,
     speedKmh: world.outcome !== 'running'
       ? world.speedKmh
-      : world.braking ? Math.min(world.speedKmh, selectedSpeedKmh) : selectedSpeedKmh,
+      : Math.min(world.speedKmh, selectedSpeedKmh),
   };
 }
 
@@ -105,11 +113,13 @@ export function publicWorld(world: WorldState): WorldView {
     speedKmh: world.speedKmh,
     selectedSpeedKmh: world.selectedSpeedKmh,
     ambientTempC: world.ambientTempC,
+    distanceTravelledM: world.distanceTravelledM,
+    hazardActive: world.hazardActive,
     carLane: world.carLane,
     laneChange: world.laneChange ? { ...world.laneChange } : null,
     hazardLane: world.hazard.lane,
     distanceM: world.hazard.distanceM,
-    identity: world.outcome === 'running' ? null : world.hazard.kind,
+    identity: !world.hazardActive || world.outcome === 'running' ? null : world.hazard.kind,
     braking: world.braking,
     outcome: world.outcome,
   };

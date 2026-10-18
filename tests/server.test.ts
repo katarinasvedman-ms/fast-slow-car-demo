@@ -5,6 +5,7 @@ import { createApp } from '../src/server.js';
 import { Simulation } from '../src/simulation.js';
 import type { Snapshot } from '../src/types.js';
 import { fakeModels } from './helpers.js';
+import { ServerResponse } from 'node:http';
 
 test('local HTTP controls and SSE publish the moving world and both gate records', async (context) => {
   const simulation = new Simulation(loadConfig({ TICK_MS: '50', TICK_BUDGET_MS: '40' }), fakeModels());
@@ -15,6 +16,7 @@ test('local HTTP controls and SSE publish the moving world and both gate records
     server.close();
     server.closeAllConnections();
   });
+
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
@@ -100,4 +102,88 @@ test('local HTTP controls and SSE publish the moving world and both gate records
     started: false, world: { tick: 0, ambientTempC: -4 }, gate: [], settings: { stalenessLimitTicks: 6 },
   });
   await reader.cancel();
+});
+
+test('SSE backpressure retains only the latest snapshot and drains without disconnecting the view', async (context) => {
+  const simulation = new Simulation(loadConfig({}), fakeModels());
+  const server = createApp(simulation).listen(0, '127.0.0.1');
+  const abort = new AbortController();
+  let streamResponse: ServerResponse | undefined;
+  let writes = 0;
+  const originalWrite = ServerResponse.prototype.write;
+  context.mock.method(ServerResponse.prototype, 'write', function (this: ServerResponse, ...args: Parameters<typeof originalWrite>) {
+    const written = originalWrite.apply(this, args);
+    if (String(this.getHeader('Content-Type')).includes('text/event-stream')) {
+      streamResponse = this;
+      writes += 1;
+      if (writes === 1) return false;
+    }
+    return written;
+  });
+  context.after(() => { abort.abort(); simulation.dispose(); server.close(); server.closeAllConnections(); });
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/events`, { signal: abort.signal });
+  const reader = response.body?.getReader();
+  assert.ok(reader && streamResponse);
+  await reader.read();
+  simulation.setTemperature(-4);
+  simulation.setTemperature(3);
+  simulation.setTemperature(12);
+  assert.equal(writes, 1);
+  assert.equal(streamResponse.destroyed, false);
+  streamResponse.emit('drain');
+  assert.equal(writes, 2);
+  const frame = await reader.read();
+  const text = new TextDecoder().decode(frame.value);
+  assert.equal((text.match(/data: /g) ?? []).length, 1);
+  assert.equal(JSON.parse(text.slice(6)).world.ambientTempC, 12);
+  await reader.cancel();
+});
+
+test('free-drive HTTP controls validate duration, reject STUB, resume collision and finalize Stop', async (context) => {
+  for (const stub of [true, false]) {
+    const simulation = new Simulation(loadConfig({
+      STUB: stub ? '1' : '0', TICK_MS: '50', TICK_BUDGET_MS: '40', INITIAL_HAZARD_DISTANCE_M: '1',
+    }), fakeModels());
+    simulation.setMode('fast_only');
+    const server = createApp(simulation).listen(0, '127.0.0.1');
+    context.after(() => { simulation.dispose(); server.close(); server.closeAllConnections(); });
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const post = (command: string, value?: unknown) => fetch(`${origin}/api/control`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command, value }),
+    });
+    assert.equal((await fetch(`${origin}/drive.js`)).status, 200);
+    for (const invalid of [0, 3601, 1.5, '120', null]) assert.equal((await post('duration', invalid)).status, 400);
+    assert.equal((await post('duration', 30)).status, 200);
+    assert.equal((await post('stop')).status, 409);
+    assert.equal((await post('run', 'free')).status, stub ? 409 : 200);
+    if (stub) {
+      assert.equal(simulation.snapshot().drive.kind, 'staged');
+    } else {
+      assert.equal((await post('hazard', 'elk')).status, 409);
+      assert.equal((await post('start')).status, 200);
+      const deadline = Date.now() + 2000;
+      while (simulation.snapshot().drive.phase !== 'collision' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(simulation.snapshot().drive.phase, 'collision');
+      assert.equal((await post('run', 'staged')).status, 409);
+      assert.equal((await post('start')).status, 200);
+      assert.equal(simulation.snapshot().drive.phase, 'gap');
+      assert.equal((await post('stop')).status, 200);
+      assert.equal(simulation.snapshot().drive.phase, 'finished');
+      assert.equal((await post('start')).status, 409);
+      assert.equal((await post('reset')).status, 200);
+      assert.equal(simulation.snapshot().drive.durationS, 30);
+      assert.equal((await post('run', 'staged')).status, 200);
+    }
+    simulation.dispose();
+    server.close();
+    server.closeAllConnections();
+  }
 });

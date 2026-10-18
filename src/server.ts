@@ -20,18 +20,35 @@ export function createApp(simulation: Simulation): express.Express {
       'Connection': 'keep-alive',
     });
     response.flushHeaders();
-    const send = (snapshot: ReturnType<Simulation['snapshot']>) => {
+    let blocked = false;
+    let pending: string | undefined;
+    const write = (frame: string) => {
       if (response.destroyed || response.writableEnded) return;
-      if (!response.write(`data: ${JSON.stringify(snapshot)}\n\n`)) response.destroy();
+      if (blocked) pending = frame;
+      else blocked = !response.write(frame);
+    };
+    const drain = () => {
+      blocked = false;
+      if (pending !== undefined) {
+        const frame = pending;
+        pending = undefined;
+        write(frame);
+      }
+    };
+    response.on('drain', drain);
+    const send = (snapshot: ReturnType<Simulation['snapshot']>) => {
+      write(`data: ${JSON.stringify(snapshot)}\n\n`);
     };
     send(simulation.snapshot());
     const unsubscribe = simulation.subscribe(send);
     const heartbeat = setInterval(() => {
-      if (!response.write(': heartbeat\n\n')) response.destroy();
+      if (!blocked) write(': heartbeat\n\n');
     }, 15_000);
     response.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
+      response.off('drain', drain);
+      pending = undefined;
     });
   });
   app.post('/api/control', (request, response) => {
@@ -47,13 +64,39 @@ export function createApp(simulation: Simulation): express.Express {
     }
     const { command } = body;
     if (command === 'start') {
-      if (simulation.snapshot().world.outcome !== 'running') {
+      const snapshot = simulation.snapshot();
+      if (snapshot.drive.phase === 'finished' ||
+          (snapshot.world.outcome !== 'running' && !(snapshot.drive.kind === 'free' && snapshot.drive.phase === 'collision'))) {
         response.status(409).json({ error: 'Reset before starting a completed run.' });
         return;
       }
       simulation.start();
     }
     else if (command === 'reset') simulation.reset();
+    else if (command === 'stop') {
+      if (simulation.snapshot().drive.kind !== 'free') {
+        response.status(409).json({ error: 'Stop is available in free drive; use Reset for staged moments.' });
+        return;
+      }
+      simulation.stopDrive();
+    } else if (command === 'run' && 'value' in body && (body.value === 'staged' || body.value === 'free')) {
+      const snapshot = simulation.snapshot();
+      if (snapshot.started || snapshot.world.tick !== 0 || snapshot.drive.phase !== 'idle') {
+        response.status(409).json({ error: 'Reset before changing the run type.' });
+        return;
+      }
+      if (body.value === 'free' && snapshot.backend === 'stub') {
+        response.status(409).json({ error: 'Free drive requires live mode; STUB supports staged moments only.' });
+        return;
+      }
+      simulation.setRunKind(body.value);
+    } else if (command === 'duration' && 'value' in body && typeof body.value === 'number') {
+      if (!Number.isInteger(body.value) || body.value < 1 || body.value > 3600) {
+        response.status(400).json({ error: 'Drive duration must be an integer between 1 and 3600 seconds.' });
+        return;
+      }
+      simulation.setDriveDuration(body.value);
+    }
     else if (command === 'speed' && 'value' in body && typeof body.value === 'number') {
       if (!Number.isFinite(body.value) || body.value < 50 || body.value > 130) {
         response.status(400).json({ error: 'Speed must be between 50 and 130 km/h.' });
@@ -71,7 +114,7 @@ export function createApp(simulation: Simulation): express.Express {
       (body.value === 'elk' || body.value === 'small_animal' || body.value === 'ambiguous')
     ) {
       const snapshot = simulation.snapshot();
-      if (snapshot.started || snapshot.world.tick !== 0) {
+      if (snapshot.started || snapshot.world.tick !== 0 || snapshot.drive.kind === 'free') {
         response.status(409).json({ error: 'Reset before changing the hazard.' });
         return;
       }
@@ -93,7 +136,7 @@ export function createApp(simulation: Simulation): express.Express {
       (body.value === 'fast_only' || body.value === 'blocking' || body.value === 'async_gated')
     ) {
       const snapshot = simulation.snapshot();
-      if (snapshot.started || snapshot.world.tick !== 0) {
+      if (snapshot.started || snapshot.world.tick !== 0 || snapshot.drive.phase !== 'idle') {
         response.status(409).json({ error: 'Reset before changing mode.' });
         return;
       }
@@ -106,6 +149,9 @@ export function createApp(simulation: Simulation): express.Express {
   });
   app.get('/main.js', (_request, response) => {
     response.sendFile(fileURLToPath(new URL('../client/main.js', import.meta.url)));
+  });
+  app.get('/drive.js', (_request, response) => {
+    response.sendFile(fileURLToPath(new URL('../client/drive.js', import.meta.url)));
   });
   app.use(express.static(fileURLToPath(new URL('../../public', import.meta.url))));
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

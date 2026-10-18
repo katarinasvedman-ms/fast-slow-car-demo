@@ -1,16 +1,18 @@
 import type { Config } from './config.js';
-import { buildObservation, observeScene } from './observation.js';
+import { buildObservation, observeScene, senseContact } from './observation.js';
+import { emptyDrive, nextHazard } from './drive.js';
 import { evaluateGate } from './gate.js';
-import { fastAction, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
+import { fastAction, hazardInPath, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
 import type { ModelServices } from './models/live.js';
 import type {
   ActionEnvelope, AppliedAction, GateDecision, GateRecord, HazardVariant, Mode,
-  SlowResult, Snapshot, TickEntry,
+  DriveView, RunKind, SlowResult, Snapshot, TickEntry, WorldState,
 } from './types.js';
 import { advanceWorld, applyAction, createWorld, publicWorld, setWorldSpeed } from './world.js';
 
 interface FastFlight {
   generation: number;
+  episodeId: number | null;
   tick: number;
   began: number;
   entry: TickEntry;
@@ -21,7 +23,7 @@ interface FastFlight {
 }
 
 export class Simulation {
-  private world;
+  private world: WorldState;
   private hazardVariant: HazardVariant = 'elk';
   private mode: Mode = 'async_gated';
   private threshold = 0.35;
@@ -40,6 +42,11 @@ export class Simulation {
   private slowFlight: { controller: AbortController; timeout: ReturnType<typeof setTimeout> } | undefined;
   private delayedStubAdvice: { observedAtTick: number; result: SlowResult } | undefined;
   private queuedSlow: { envelope: ActionEnvelope; proposed: GateDecision } | undefined;
+  private drive: DriveView;
+  private sequenceSeed: number;
+  private phaseUntilTick = 0;
+  private driveTicks = 0;
+  private slowEpisodeId: number | null = null;
 
   constructor(
     private readonly config: Config,
@@ -48,6 +55,8 @@ export class Simulation {
   ) {
     this.world = createWorld(config);
     this.stalenessLimitTicks = config.stalenessLimitTicks;
+    this.drive = emptyDrive(config.driveSeed, config.driveDurationS);
+    this.sequenceSeed = config.driveSeed;
   }
 
   snapshot(): Snapshot {
@@ -58,8 +67,13 @@ export class Simulation {
       mode: this.mode,
       threshold: this.threshold,
       started: this.timer !== undefined,
+      drive: {
+        ...structuredClone(this.drive),
+        phaseRemainingS: this.drive.phase === 'gap' || this.drive.phase === 'dwell'
+          ? Math.max(0, this.phaseUntilTick - this.world.tick) * this.config.tickMs / 1000 : 0,
+      },
       world: publicWorld(this.world),
-      hazardVariant: this.hazardVariant,
+      hazardVariant: this.drive.kind === 'free' ? null : this.hazardVariant,
       observation: this.capturedObservation?.text ?? buildObservation(this.world, this.hazardVariant),
       observationTick: this.capturedObservation?.tick ?? null,
       scene: observeScene(this.world, this.hazardVariant),
@@ -68,6 +82,7 @@ export class Simulation {
         tickBudgetMs: this.config.tickBudgetMs,
         initialHazardDistanceM: this.config.initialHazardDistanceM,
         brakeDecelMps2: this.config.brakeDecelMps2,
+        accelMps2: this.config.accelMps2,
         stalenessLimitTicks: this.stalenessLimitTicks,
         swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
         swerveTier: swerveTierFor(this.world.ambientTempC, this.config),
@@ -86,9 +101,20 @@ export class Simulation {
   }
 
   start(): void {
-    if (this.timer !== undefined || this.world.outcome !== 'running') return;
-    this.timer = setInterval(() => this.advance(), this.config.tickMs);
-    this.beginTick();
+    if (this.timer !== undefined) return;
+    if (this.drive.kind === 'free') {
+      if (this.drive.phase === 'finished') return;
+      if (this.drive.phase === 'collision') {
+        this.world = { ...this.world, speedKmh: 0, braking: false, laneChange: null, outcome: 'running', hazardActive: false };
+        this.scenario('resume', 'Collision recovery: Start resumes from rest; contact cleared by scenario.');
+        this.waitFor('gap', this.config.driveGapS);
+      } else if (this.drive.phase === 'idle') this.spawnEpisode();
+    } else if (this.world.outcome !== 'running') return;
+    const timer = setInterval(() => {
+      if (this.timer === timer) this.advance();
+    }, this.config.tickMs);
+    this.timer = timer;
+    if (this.drive.kind === 'staged' || this.drive.phase === 'episode') this.beginTick();
     this.publish();
   }
 
@@ -104,6 +130,11 @@ export class Simulation {
     this.actionStatus = 'No action proposed.';
     this.appliedAction = null;
     this.capturedObservation = null;
+    this.drive = emptyDrive(this.config.driveSeed, this.drive.durationS, this.drive.kind);
+    this.sequenceSeed = this.config.driveSeed;
+    this.driveTicks = 0;
+    this.phaseUntilTick = 0;
+    this.slowEpisodeId = null;
     this.publish();
   }
 
@@ -112,6 +143,7 @@ export class Simulation {
       throw new Error('Speed must be between 50 and 130 km/h.');
     }
     this.world = setWorldSpeed(this.world, speedKmh);
+    if (this.world.tick === 0 && this.timer === undefined) this.world.speedKmh = speedKmh;
     this.publish();
   }
 
@@ -138,15 +170,41 @@ export class Simulation {
   }
 
   setMode(mode: Mode): void {
-    if (this.timer !== undefined || this.world.tick !== 0) throw new Error('Reset before changing mode.');
+    if (this.timer !== undefined || this.world.tick !== 0 || this.drive.phase !== 'idle') throw new Error('Reset before changing mode.');
     this.mode = mode;
     this.publish();
   }
 
   setHazard(variant: HazardVariant): void {
+    if (this.drive.kind === 'free') throw new Error('Free-drive hazards come from the seeded sequence.');
     if (this.timer !== undefined || this.world.tick !== 0) throw new Error('Reset before changing the hazard.');
     this.hazardVariant = variant;
     this.world = createWorld(this.config, this.world.selectedSpeedKmh, variant, this.world.ambientTempC);
+    this.publish();
+  }
+
+  setRunKind(kind: RunKind): void {
+    if (this.timer !== undefined || this.world.tick !== 0 || this.drive.phase !== 'idle') {
+      throw new Error('Reset before changing the run type.');
+    }
+    if (kind === 'free' && this.config.stub) throw new Error('Free drive requires live mode; recorded advice covers only the staged scene.');
+    this.drive = emptyDrive(this.config.driveSeed, this.drive.durationS, kind);
+    this.publish();
+  }
+
+  setDriveDuration(seconds: number): void {
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 3600) {
+      throw new Error('Drive duration must be an integer between 1 and 3600 seconds.');
+    }
+    this.drive.durationS = seconds;
+    if (this.drive.kind === 'free' && this.drive.phase !== 'idle' &&
+        this.drive.phase !== 'finished' && this.drive.elapsedS >= seconds) this.finishDrive('duration');
+    this.publish();
+  }
+
+  stopDrive(): void {
+    if (this.drive.kind !== 'free') throw new Error('Stop is available in free drive; use Reset for staged moments.');
+    if (this.drive.phase !== 'finished') this.finishDrive('stopped');
     this.publish();
   }
 
@@ -169,7 +227,21 @@ export class Simulation {
 
   private advance(): void {
     this.world = advanceWorld(this.world, this.config);
-    if (this.world.outcome === 'running') this.beginTick();
+    if (this.drive.kind === 'free') {
+      this.driveTicks += 1;
+      this.drive.elapsedS = this.driveTicks * this.config.tickMs / 1000;
+      this.resolveEpisode();
+      if (this.drive.elapsedS >= this.drive.durationS) this.finishDrive('duration');
+      else if (this.drive.phase === 'episode') this.beginTick();
+      else if (this.drive.phase === 'dwell' && this.world.tick >= this.phaseUntilTick) {
+        this.world = { ...this.world, braking: false, outcome: 'running', hazardActive: false };
+        this.scenario('clear', 'Stopped contact cleared by scenario, not model output; accelerating during the gap.');
+        this.waitFor('gap', this.config.driveGapS);
+      } else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick) {
+        this.spawnEpisode();
+        this.beginTick();
+      }
+    } else if (this.world.outcome === 'running') this.beginTick();
     else {
       for (const flight of this.fastFlights) {
         clearTimeout(flight.deadline);
@@ -192,6 +264,83 @@ export class Simulation {
     this.publish();
   }
 
+  private scenario(event: NonNullable<TickEntry['scenario']>['event'], detail: string): void {
+    this.log.unshift({
+      tick: this.world.tick, detail: `Scenario / episode ${this.drive.episodeId ?? '-'}: ${detail}`,
+      majorDamageRisk: null, adjacentLaneClear: null, deadlineMissed: false,
+      scenario: { episodeId: this.drive.episodeId, event },
+    });
+    this.log.length = Math.min(this.log.length, 40);
+  }
+
+  private waitFor(phase: 'gap' | 'dwell', seconds: number): void {
+    this.drive.phase = phase;
+    this.phaseUntilTick = this.world.tick + Math.ceil(seconds * 1000 / this.config.tickMs);
+  }
+
+  private spawnEpisode(): void {
+    this.cancelRequests();
+    const next = nextHazard(this.sequenceSeed, this.world.carLane);
+    this.sequenceSeed = next.seed;
+    const previous = this.world;
+    this.hazardVariant = next.variant;
+    this.world = {
+      ...createWorld(this.config, previous.selectedSpeedKmh, next.variant, previous.ambientTempC),
+      tick: previous.tick, carLane: previous.carLane, speedKmh: previous.speedKmh,
+      distanceTravelledM: previous.distanceTravelledM,
+      hazard: { lane: previous.carLane, distanceM: this.config.initialHazardDistanceM, kind: next.kind },
+      adjacentLanesBlocked: next.blocked,
+    };
+    this.drive.episodeId = (this.drive.episodeId ?? 0) + 1;
+    this.drive.phase = 'episode';
+    this.drive.score.hazardsFaced += 1;
+    this.fast = { ...this.emptyFast(), missedDeadlines: this.fast.missedDeadlines, deadlineTicks: this.fast.deadlineTicks };
+    this.advice = this.emptyAdvice();
+    this.appliedAction = null;
+    this.scenario('spawn', `New sensor contact in lane ${this.world.carLane}; seeded adjacent traffic.`);
+  }
+
+  private resolveEpisode(): void {
+    if (this.drive.phase !== 'episode' || this.world.outcome === 'running') return;
+    this.cancelRequests();
+    if (this.advice.status === 'thinking') this.advice = { ...this.advice, status: 'idle', observedAtTick: null };
+    if (this.fast.status === 'pending') this.fast.status = 'idle';
+    const outcome = this.world.outcome;
+    if (outcome === 'collision') {
+      this.drive.score.collisions += 1;
+      this.drive.phase = 'collision';
+      this.scenario('collision', 'Collision counted. Run paused; Start resumes from rest.');
+      this.stop();
+    } else if (outcome === 'braked') {
+      this.drive.score.avoidedByBraking += 1;
+      this.waitFor('dwell', this.config.driveDwellS);
+      this.scenario('stopped', 'Stopped before contact. Waiting for scenario clearance; episode work cancelled.');
+    } else {
+      if (outcome === 'swerved') this.drive.score.avoidedBySwerving += 1;
+      this.scenario('passed', `Contact passed (${outcome}); episode work cancelled.`);
+      this.world = { ...this.world, outcome: 'running', hazardActive: false, braking: false };
+      this.waitFor('gap', this.config.driveGapS);
+    }
+  }
+
+  private finishDrive(reason: 'duration' | 'stopped'): void {
+    this.stop();
+    this.cancelRequests();
+    if (this.advice.status === 'thinking') this.advice = { ...this.advice, status: 'idle', observedAtTick: null };
+    if (this.fast.status === 'pending') this.fast.status = 'idle';
+    this.drive.phase = 'finished';
+    this.drive.finishReason = reason;
+    this.scenario('finished', `Drive ended (${reason}); scoreboard final. Reset to start another run.`);
+  }
+
+  private inPath(): boolean {
+    return hazardInPath(senseContact(this.world), this.world);
+  }
+
+  private defaultFastAction(): ActionEnvelope['action'] {
+    return fastAction({ majorDamageRisk: null, adjacentLaneClear: null, latencyMs: 0 }, this.threshold, this.inPath());
+  }
+
   private beginTick(): void {
     const entry: TickEntry = {
       tick: this.world.tick, detail: `${Math.round(this.world.hazard.distanceM)} m; fast pending`,
@@ -203,11 +352,13 @@ export class Simulation {
     this.capturedObservation = { tick: this.world.tick, text: observation };
     if (
       this.mode !== 'fast_only' && !this.queuedSlow &&
+      (this.drive.kind === 'staged' || this.slowEpisodeId !== this.drive.episodeId) &&
       (this.advice.status === 'idle' || this.advice.status === 'ready')
     ) this.beginSlow(observation);
     const controller = new AbortController();
     const flight: FastFlight = {
-      generation: this.generation, tick: this.world.tick, began: this.now(), entry, controller,
+      generation: this.generation, episodeId: this.drive.kind === 'free' ? this.drive.episodeId : null,
+      tick: this.world.tick, began: this.now(), entry, controller,
       expired: false,
       suppressed: this.mode === 'blocking' && this.advice.status === 'thinking',
       deadline: setTimeout(() => this.expireFast(flight), this.config.tickBudgetMs),
@@ -233,7 +384,7 @@ export class Simulation {
           entry.adjacentLaneClear = result.adjacentLaneClear;
           if (flight.suppressed) entry.detail += '; action suppressed while blocking';
           else this.applyEnvelope(
-            this.envelope(fastAction(result, this.threshold), 'fast', flight.tick), entry, undefined,
+            this.envelope(fastAction(result, this.threshold, this.inPath()), 'fast', flight.tick), entry, undefined,
             result.majorDamageRisk === null || result.adjacentLaneClear === null,
           );
         }
@@ -250,7 +401,7 @@ export class Simulation {
           this.fast.status = 'error';
           this.fast.error = message;
           entry.detail += `; fast error: ${message}`;
-          if (!flight.suppressed) this.applyEnvelope(this.envelope('brake', 'fast', this.world.tick), entry, undefined, true);
+          if (!flight.suppressed) this.applyEnvelope(this.envelope(this.defaultFastAction(), 'fast', this.world.tick), entry, undefined, true);
         }
         this.finishFast(flight);
       },
@@ -258,7 +409,8 @@ export class Simulation {
   }
 
   private owns(flight: FastFlight): boolean {
-    return flight.generation === this.generation && this.fastFlights.has(flight);
+    return flight.generation === this.generation && this.fastFlights.has(flight) &&
+      (this.drive.kind === 'staged' || (this.drive.phase === 'episode' && flight.episodeId === this.drive.episodeId));
   }
 
   private expireFast(flight: FastFlight): void {
@@ -272,8 +424,10 @@ export class Simulation {
       this.fast.deadlineTicks.unshift(flight.tick);
       this.fast.deadlineTicks.length = Math.min(this.fast.deadlineTicks.length, 20);
       this.fast.status = 'deadline';
-      flight.entry.detail += '; deadline missed -> default brake';
-      this.applyEnvelope(this.envelope('brake', 'fast', this.world.tick), flight.entry, undefined, true);
+      if (this.drive.kind === 'free') this.drive.score.deadlineMisses += 1;
+      const action = this.defaultFastAction();
+      flight.entry.detail += `; deadline missed -> default ${action} (${this.inPath() ? 'contact in path' : 'path clear'})`;
+      this.applyEnvelope(this.envelope(action, 'fast', this.world.tick), flight.entry, undefined, true);
     }
     this.flushSlow();
     this.publish();
@@ -289,11 +443,13 @@ export class Simulation {
 
   private beginSlow(observation: string): void {
     const generation = this.generation;
+    const episodeId = this.drive.kind === 'free' ? this.drive.episodeId : null;
+    this.slowEpisodeId = episodeId;
     const observedAtTick = this.world.tick;
     const controller = new AbortController();
     this.advice = { ...this.advice, status: 'thinking', observedAtTick, error: null };
     const timeout = setTimeout(() => {
-      if (generation !== this.generation || this.advice.status !== 'thinking') return;
+      if (!this.ownsSlow(generation, episodeId)) return;
       controller.abort();
       this.failSlow('Reasoning request exceeded 30 seconds.');
     }, 30_000);
@@ -303,17 +459,22 @@ export class Simulation {
       return this.models.slow.advise(observation, controller.signal);
     }).then(
       (result) => {
-        if (generation !== this.generation || this.advice.status !== 'thinking') return;
+        if (!this.ownsSlow(generation, episodeId)) return;
         clearTimeout(timeout);
         if (this.config.stub && this.world.tick - observedAtTick < this.config.stubSlowDelayTicks) {
           this.delayedStubAdvice = { result, observedAtTick };
         } else this.acceptAdvice(result, observedAtTick);
       },
       (error: unknown) => {
-        if (generation !== this.generation || this.advice.status !== 'thinking') return;
+        if (!this.ownsSlow(generation, episodeId)) return;
         this.failSlow(error instanceof Error ? error.message : 'Reasoning request failed.');
       },
     );
+  }
+
+  private ownsSlow(generation: number, episodeId: number | null): boolean {
+    return generation === this.generation && this.advice.status === 'thinking' &&
+      (this.drive.kind === 'staged' || (this.drive.phase === 'episode' && episodeId === this.drive.episodeId));
   }
 
   private failSlow(message: string): void {
@@ -331,7 +492,10 @@ export class Simulation {
     this.slowFlight = undefined;
     this.advice = {
       status: 'ready', observedAtTick,
-      data: { ...result, observedAtTick, arrivedAtTick: this.world.tick }, error: null,
+      data: {
+        ...result, observedAtTick, arrivedAtTick: this.world.tick,
+        ...(this.drive.kind === 'free' && this.drive.episodeId !== null ? { episodeId: this.drive.episodeId } : {}),
+      }, error: null,
       gate: null, application: null,
     };
     const envelope = this.envelope(result.action, 'slow', observedAtTick, result.targetLane);
@@ -359,6 +523,7 @@ export class Simulation {
       action, source, fromLane: this.world.carLane, speedKmh: this.world.speedKmh,
       observedAtTick, proposedAtTick: this.world.tick,
       ...(targetLane !== undefined ? { toLane: targetLane } : {}),
+      ...(this.drive.kind === 'free' && this.drive.episodeId !== null ? { episodeId: this.drive.episodeId } : {}),
     };
   }
 
@@ -379,6 +544,10 @@ export class Simulation {
   private applyEnvelope(
     envelope: ActionEnvelope, entry?: TickEntry, prior?: GateDecision, safetyFallback = false,
   ): void {
+    if (this.drive.kind === 'free' && (this.drive.phase !== 'episode' || envelope.episodeId !== this.drive.episodeId)) {
+      this.actionStatus = `Discarded ${envelope.source} action from a finished episode.`;
+      return;
+    }
     const proposed = prior ?? this.check(envelope, 'proposal').decision;
     const application = this.check(envelope, 'application');
     const applied = application.decision;
@@ -389,6 +558,8 @@ export class Simulation {
       this.actionStatus = `${envelope.source} ${envelope.action} refused: ${reasons.map((reason) => reason.reason).join(' + ')}.`;
     } else if (this.world.outcome !== 'running' && this.world.outcome !== 'braked') {
       this.actionStatus = `${envelope.source} ${envelope.action} checked; terminal world unchanged.`;
+    } else if (envelope.action === 'brake' && !this.inPath()) {
+      this.actionStatus = `${envelope.source} brake not applied: sensed contact is outside the occupied path.`;
     } else if (
       envelope.source === 'slow' && previous?.envelope.source === 'fast' &&
       previous.atTick === this.world.tick && !sameAction
@@ -423,10 +594,24 @@ export class Simulation {
     if (envelope.source === 'slow') {
       this.advice.gate = !proposed.allowed ? proposed : applied;
       this.advice.application = this.actionStatus;
+      if (this.drive.kind === 'free') {
+        if (this.advice.gate.allowed) this.drive.score.slowAllowed += 1;
+        else {
+          this.drive.score.slowRefused += 1;
+          for (const refusal of this.advice.gate.reasons) {
+            if (refusal.reason === 'stale_advice') this.drive.score.staleAdvice += 1;
+            else this.drive.score.prohibitedAction += 1;
+          }
+        }
+      }
     }
   }
 
   private stopIfFinished(): void {
+    if (this.drive.kind === 'free') {
+      this.resolveEpisode();
+      return;
+    }
     if (this.world.outcome !== 'running' && this.advice.status !== 'thinking' && !this.queuedSlow) this.stop();
   }
 

@@ -181,15 +181,28 @@ export class RoadScene {
       car.visible = lane.vehicleBehindM !== null;
       car.position.set((lane.lane - 2) * 3.6, 0.55, lane.vehicleBehindM ?? 0);
     }
-    this.contact.visible = view.identity === null;
+    this.contact.visible = world.hazardActive && view.identity === null;
     this.brakeGlow.visible = world.braking;
     this.contact.position.set((world.hazardLane - 2) * 3.6, 0.8, -world.distanceM);
     if (view.identity !== null && this.animalIdentity !== view.identity) {
+      if (this.animal && this.animalMaterial) {
+        this.scene.remove(this.animal);
+        const geometry = this.animal.geometry;
+        const material = this.animalMaterial;
+        const texture = material.map;
+        geometry.dispose();
+        material.dispose();
+        texture?.dispose();
+        this.geometries = this.geometries.filter((item) => item !== geometry);
+        this.materials = this.materials.filter((item) => item !== material);
+        this.textures = this.textures.filter((item) => item !== texture);
+      }
       this.animalIdentity = view.identity;
+      this.animalReady = false;
       const generation = this.generation;
       const animal = view.identity === 'elk' ? 'moose' : 'squirrel';
       const texture = new THREE.TextureLoader().load(`/images/${animal}-cutout.png`, (loaded) => {
-        if (this.disposed || generation !== this.generation) loaded.dispose();
+        if (this.disposed || generation !== this.generation || this.animalMaterial?.map !== loaded) loaded.dispose();
         else {
           this.animalReady = true;
           this.animalRevealedAt = performance.now();
@@ -243,7 +256,7 @@ export class RoadScene {
     this.camera.rotation.z = this.reduced.matches ? 0 : (view.lane - this.shownLane) * 0.025;
     this.markers.position.z = this.shownDistance % 12;
     this.brakeGlow.position.x = x;
-    this.contact.position.z = -(settings.initialHazardDistanceM - this.shownDistance);
+    this.contact.position.z = -world.distanceM - (view.travelledM - this.shownDistance);
     if (this.animal) this.animal.position.z = this.contact.position.z;
     if (this.animalMaterial) {
       this.animalMaterial.opacity = !this.animalReady ? 0

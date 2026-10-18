@@ -28,6 +28,9 @@ npm start
 
 Open `http://127.0.0.1:3000`. One process serves the page, controls, and SSE on
 loopback. Models are invoked only after **Start**. **Reset** cancels old work.
+SSE is authoritative in both views. A backpressured connection retains only its
+latest pending snapshot and resumes on drain, rather than disconnecting or
+queuing an unbounded history.
 
 For completely offline rehearsal, no credentials or Azure CLI are needed:
 
@@ -84,6 +87,7 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | 2 | Fast only, Ambiguous, 90 km/h; repeat to alternate threshold 0.35 / 0.50 |
 | 3 | Async + gated, Elk, 90 km/h, -4 °C, staleness 3 |
 | 4 | Async + gated, Elk, 90 km/h, 12 °C, staleness 6 |
+| Free drive / Stop | Select live-only continuous episodes / end with a scoreboard |
 
 Presets reset first and apply the existing commands serially, then wait for
 **Start**. Mode and hazard remain locked during a run. Shortcuts do not steal
@@ -106,9 +110,9 @@ Sound is synthesised locally and can be muted before Start.
 
 Rehearse presets 1-4 at projector resolution in STUB mode, including the second
 press of 2, both independent gate refusals, reset while thinking, and the
-three-tick lane change. Two refusals at 90 km/h are not guaranteed after braking
-reduces actual speed; likewise, later fast braking may resume after an allowed
-turn. A preset never forces a result. Check performance on the venue laptop;
+three-tick lane change and recovery to selected speed after clearing the contact's
+lane. Two refusals at 90 km/h are not guaranteed after braking
+reduces actual speed. A preset never forces a result. Check performance on the venue laptop;
 the implementation caps rendering pixel ratio and avoids shadows, but does not
 promise a frame rate on untested hardware.
 
@@ -134,6 +138,8 @@ animal shows the squirrel image from `public\images`, including after Reset.
 These are audience-only previews selected from the dropdown; models still receive
 sensor text only. Ambiguous keeps the unidentified contact marker until an outcome
 reveals its identity.
+Free drive has no explicit audience-selected hazard: both views conceal generated
+identity until an outcome, and the public `hazardVariant` is null.
 
 ## Rehearse the four moments
 
@@ -154,7 +160,7 @@ engaged action does not change its original application tick.
 | Confident elk | Fast only, Elk, 90 km/h, threshold 0.35. Risk is high and braking fires. The recorded cold call also visibly demonstrates one deadline default. |
 | Ambiguous hazard | Fast only, Ambiguous, threshold 0.35. Recorded risk is 0.4073 (displayed 0.41): brake, even though it is below 0.5. Reset and use threshold 0.5 to contrast continuing. |
 | Late advice | Async + gated, Elk, 90 km/h, -4 °C, threshold 0.35, staleness 3. At five ticks in STUB mode, the recorded swerve is refused for both `stale_advice` and `prohibited_action` (ice risk, limit 40 km/h). |
-| Supersession | Async + gated, Elk, 90 km/h, 12 °C, threshold 0.35, staleness 6. The first recorded slow swerve is allowed (normal grip, limit 110 km/h), releases the fast brake and starts lane change 2 -> 3. |
+| Supersession | Async + gated, Elk, 90 km/h, 12 °C, threshold 0.35, staleness 6. The first recorded slow swerve is allowed (normal grip, limit 110 km/h), releases the fast brake and starts lane change 2 -> 3. After the turn, braking releases and actual speed recovers to 90 km/h. |
 
 For a **temperature-only contrast**, use staleness **6** in both runs and change
 only temperature: **-4 °C** refuses for speed alone, **12 °C** allows the same
@@ -182,6 +188,11 @@ The replay reuses the documented captured elk recommendation on each assessment,
 not a new model-generated plan. It does not adapt its target: after reaching lane
 3, the repeated lane-3 swerve is reported as invalid. Live model actions/timing
 vary, and no advice is fabricated or forced to apply.
+While a turn is in progress, fast damage-risk braking can re-engage because the
+car still occupies its original lane. After all three ticks, a contact in the old
+lane is outside its path: high, refused/unknown, failed and missed-deadline fast
+answers no longer keep the brake engaged. The car recovers toward selected speed
+at `ACCEL_MPS2` (default **2.0 m/s²**), never accelerating during the turn.
 
 **What does 6 mean?** It permits an observation age of six simulation ticks;
 age seven is stale. With the default 400 ms clock, six ticks represent 2.4
@@ -205,7 +216,7 @@ temperature at model observation. The three default tiers are **normal grip**
 braking while advice is pending. **Async + gated** keeps fast actions active.
 **Fast only** never calls the slow model. Both gate checks are logged; the
 advice card retains the slow action's decision even as the fast gate log scrolls.
-Both reasoning modes continuously reassess: after an assessment has been evaluated,
+In staged moments both reasoning modes continuously reassess: after an assessment has been evaluated,
 the next running tick sends a fresh observation. There is at most one slow request
 in flight and no new request while earlier advice awaits application. Observation
 age restarts at capture, never at arrival. During reassessment the card labels the
@@ -215,13 +226,80 @@ the tick cadence, not overlapping calls. Service errors remain visible and stop
 automatic reassessment until Reset; they are not silently retried.
 New assessments stop when the physical episode ends. Already-pending advice
 retains the existing terminal-state behavior described below.
-Collision/completed passage freeze motion/actions, but pending advice can still
+In staged moments collision/completed passage freeze motion/actions, but pending advice can still
 age and be displayed/checked. A stopped `braked` state can still be revised by pending,
-permitted advice; collision and completed passage cannot. No acceleration is
-invented when releasing a brake. Later fresh fast actions can brake again,
+permitted advice; collision and completed passage cannot. Releasing a brake does
+not instantly increase speed. Recovery is integrated only once fully outside the
+sensed contact's path. Later fresh fast actions can brake again while in its path,
 but do not cancel the physical lane change already in progress. During a turn,
 the car still occupies the hazard lane until it finishes; it cannot teleport
 past a contact. The Ambiguous contact's identity is revealed only after an outcome.
+
+## Free drive (live only)
+
+Use **Free drive** in either view, or choose **Run: Free drive** in Details.
+Selection resets the world and chooses Async + gated; edit the mode before Start
+if desired. Presets **1-4 always return to staged moments**, with their original
+settings. Free drive is disabled in STUB, including on the server: the checked-in
+slow recommendation fits only the staged scene. It has not been silently reused
+for other lanes/traffic, and no paid recordings were added.
+
+Set **Drive duration (s)** before or during a run (integer 1..3600). Start begins
+a seeded sequence of contacts in the car's current lane, with elk, small-animal
+or ambiguous sensor descriptions and seeded neighboring-lane traffic. Ambiguous
+contacts also have a seeded hidden physical identity. `DRIVE_SEED` repeats the
+sequence for the same lane history; model timing/actions can change that history.
+The road and model inputs still share the same observation code and fixed-gap
+traffic; the cumulative odometer prevents the road jumping backward at a spawn.
+
+After a completed passage, a moving, contact-free gap precedes the next episode.
+After stopping before a contact, a dwell of `DRIVE_DWELL_S` precedes an explicitly
+logged **scenario clearance**, not a model decision. The gap then allows physical
+acceleration back toward selected speed. Defaults are **3 s dwell / 15 s gap**;
+the default gap exceeds the 12.5 s needed to recover from rest to 90 km/h at
+2 m/s². Dwell/gap transitions occur on clock ticks (rounded up; even zero waits
+until the next tick). There are no model calls during dwell, gap or pauses.
+
+A collision counts once and **pauses**. **Start** explicitly clears that crashed
+episode as a scenario event and resumes from rest into a gap; it does not reset
+the score. Running-time duration includes dwell and gaps but excludes collision
+pauses. Duration expires on the first clock boundary at or beyond its limit;
+shortening it below elapsed time ends immediately. **Stop** ends even during a
+collision pause. Both show the final scoreboard; **Reset** starts over, preserving
+the selected run kind, live duration, speed, temperature and staleness limit.
+
+In reasoning modes there is **at most one slow request per free-drive episode**,
+with no automatic retry, even after refusal or failure. Both fast and slow work
+carry episode ownership; resolving, stopping or resetting cancels pending work.
+Late advice from a completed episode cannot apply to another. Gate proposal and
+application checks and same-tick fast priority are unchanged.
+
+The scoreboard counts contacts faced, actual stops before contact, completed
+swerved passages, gate-allowed/refused slow advice, each refusal reason,
+collisions and unsuppressed fast deadline misses. Allowed does **not** mean applied:
+same-tick priority or an invalid target can still prevent application. A single
+refusal may count in both reason totals. Safe small-animal passage without a stop
+or swerve counts as faced but neither avoidance category. Interrupted episodes
+are not recorded as successes.
+
+**Expected billable requests:** at the default 400 ms clock, uninterrupted active
+hazard ticks send **150 Decision-1 requests per minute** (151 if counting both
+endpoints of a 60-second interval). Episode-start requests occupy those ticks;
+only the initial Start additionally captures tick zero. Each request contains
+**both** predicates, not two billable calls.
+Reasoning modes add **one GPT-5.4 request per episode started**; Fast only adds
+none. For a full running minute, count the actual active request ticks, at most
+about 150 fast calls (boundary/start effects aside), and the episodes begun in it.
+Dwell, gaps and collision pauses reduce this; there is no fixed slow calls/minute
+independent of outcomes. The existing shared **50 ms** live request spacing is
+unchanged. This is a call budget, not a price estimate.
+For example, 20-second active episodes followed by the default roughly 15-second
+gap average about **86 fast + 1.7 slow requests/minute** in a reasoning mode,
+not a measured prediction of live model behavior.
+
+Offline verification of free-drive lifecycle uses injected mock services through
+the real simulation/server and is labelled **MOCK MODEL TEST / NO PAID CALLS**.
+Those screenshots are not Foundry responses or additional recorded fixtures.
 
 ## Configuration
 
@@ -233,6 +311,11 @@ past a contact. The Ambiguous contact's identity is revealed only after an outco
 | `STUB` | `0` | `1` disables all app network/model authentication calls |
 | `TICK_MS` / `TICK_BUDGET_MS` | `400` / `350` | Fixed clock (minimum 50 ms) and fast deadline; budget must be smaller |
 | `BRAKE_DECEL_MPS2` | `1.5` | Positive gradual braking deceleration |
+| `ACCEL_MPS2` | `2.0` | Clear-path recovery acceleration in m/s² (0.01..100); no acceleration during turns |
+| `DRIVE_SEED` | `42` | Unsigned 32-bit seeded hazard/adjacent-traffic sequence |
+| `DRIVE_DURATION_S` | `120` | Initial live-editable running-time duration, integer 1..3600 seconds |
+| `DRIVE_GAP_S` | `15` | Contact-free moving gap between episodes, 0..300 seconds |
+| `DRIVE_DWELL_S` | `3` | Stopped-contact dwell before scenario clearance, 0..300 seconds |
 | `INITIAL_HAZARD_DISTANCE_M` | `500` | Initial contact distance |
 | `STALENESS_LIMIT_TICKS` | `3` | Initial live-editable UI limit; refuse observation age strictly greater than this |
 | `SWERVE_SPEED_LIMIT_NORMAL` | `110` | Normal-grip swerve limit in km/h (0..130) |
@@ -294,7 +377,9 @@ node --test --test-name-pattern="deadline applies" dist\tests\simulation.test.js
 Tests cover policy boundaries/refusals, independent gate rules, physical outcomes,
 observation privacy, deadline/late-result handling, modes, reset and terminal
 lifecycle, same-tick fast priority, brake supersession, three-tick lane occupancy,
-and actual offline replay.
+actual offline replay, sensor-lane path checks, acceleration, seeded free-drive
+episodes, cancelled/late episode advice, dwell/clearance, collision pause/resume,
+running-time duration and scoreboard counts.
 
 ## Provenance and limitations
 

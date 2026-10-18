@@ -13,6 +13,7 @@ declare module 'three' {
     scale: Vector3;
     visible: boolean;
     add(...objects: Object3D[]): void;
+    remove(...objects: Object3D[]): void;
     lookAt(x: number, y: number, z: number): void;
   }
   export class Scene extends Object3D {
@@ -47,12 +48,16 @@ declare module 'three' {
   export class MeshStandardMaterial extends Material {
     constructor(options: { color: Color; roughness?: number; metalness?: number; emissive?: Color; emissiveIntensity?: number; map?: Texture; transparent?: boolean; opacity?: number; alphaTest?: number; depthWrite?: boolean });
     opacity: number;
+    map: Texture | null;
   }
   export class MeshBasicMaterial extends Material {
     constructor(options: { color: Color; transparent?: boolean; opacity?: number; wireframe?: boolean });
     opacity: number;
   }
-  export class Mesh extends Object3D { constructor(geometry: BufferGeometry, material: Material); }
+  export class Mesh extends Object3D {
+    constructor(geometry: BufferGeometry, material: Material);
+    geometry: BufferGeometry;
+  }
   export class Texture { dispose(): void; colorSpace: string; }
   export class TextureLoader {
     load(url: string, onLoad?: (texture: Texture) => void, onProgress?: undefined, onError?: (error: unknown) => void): Texture;

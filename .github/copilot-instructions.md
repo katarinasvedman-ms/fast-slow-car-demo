@@ -29,7 +29,9 @@ websockets, frontend framework, or bundler.
 
 `src\simulation.ts` owns the fixed interval, asynchronous request generations,
 deadlines, mode behavior, arbitration, and reset. `src\world.ts` owns physical
-advancement/outcomes. `src\observation.ts` is the model-input boundary.
+advancement/outcomes. `src\drive.ts` owns the seeded scenario sequence and initial
+score state. `src\observation.ts` is the model-input boundary, including the
+structured lane/range sensor contact used by path-aware policy.
 `src\policy.ts` maps fast probabilities to actions and resolves temperature
 tiers/limits; `src\gate.ts` contains only
 the two deterministic rules so it remains readable during a talk.
@@ -59,7 +61,9 @@ are authoritative; do not apply potentially older HTTP-control responses.
   Public world projection conceals
   hazard identity until a terminal outcome. The UI may preview moose/squirrel
   images from the explicit dropdown selection for the audience; Ambiguous stays
-  unidentified until an outcome. Never send those images to either model.
+  unidentified until an outcome. Those previews apply only to explicit staged
+  selections; free drive never exposes generated kinds before reveal and sends
+  null for the public hazardVariant. Never send those images to either model.
 - Observation text and road scenery share `observeScene` and world-backed
   traffic distances/clearance. Render all described traffic, lane status,
   contact range/description, and road condition without adding traffic behavior.
@@ -67,17 +71,22 @@ are authoritative; do not apply potentially older HTTP-control responses.
   not a reconstruction after within-tick controls or actions.
 - Branch on the Foundry answer `type` before reading `noul`; refusal/null is
   unknown, not false. Invalid variants/values are explicit errors. Unknown or
-  service failure brakes; damage risk >= the current threshold also brakes.
+  service failure brakes while the sensed contact is in the occupied path;
+  damage risk >= the current threshold also brakes only in that path. Occupied
+  path includes current lane and the turn target until the turn completes.
+  Read the lane from the sensor contact, never hidden kind. Outside the path,
+  high/unknown/error/deadline fast decisions continue; fast never swerves.
 - Default threshold is 0.35. The recorded ambiguous example is about 0.4073,
   below 0.5 but above the threshold. Preserve the asymmetric-cost UI explanation.
 - Each fast response belongs to one run generation and observation tick. At
-  350 ms on a 400 ms tick, default to brake, count/mark the miss, and discard
+  350 ms on a 400 ms tick, default to brake in-path or continue when clear,
+  count/mark the miss, and discard
   late completions. Check elapsed time as well as timer callbacks. Reset aborts
   old work and prevents its eventual callbacks from changing the new run.
 - `fast_only` never invokes reasoning. `blocking` suppresses fast actions and
   deadline braking while advice is pending, not physical movement.
   `async_gated` continues fast actions. Reset before changing mode/hazard.
-- Reassess continuously in both reasoning modes, at most one slow request at a
+- In staged moments reassess continuously in both reasoning modes, at most one slow request at a
   time. After evaluated advice, capture a fresh observation on the next running
   tick, never while old advice awaits application. Do not start new assessments
   after an outcome or automatically retry service errors. Stamp observation and
@@ -108,7 +117,11 @@ are authoritative; do not apply potentially older HTTP-control responses.
   earlier one and can release its brake; refused/invalid advice changes nothing.
   Unknown/error/deadline defaults are fresh fast actions, not cached reaffirmations.
   Higher selected speed alone never cancels braking; a lower setting can reduce
-  actual speed live. Never make the fast policy propose swerves.
+  actual speed live. Recovery increases speed at configurable ACCEL_MPS2 (default
+  2.0 m/s²), capped at selected speed, only without braking/turning and outside
+  the sensed contact's path. Releasing the brake never jumps actual speed.
+  Slow brake advice outside the path is explicitly not applied, not a third
+  gate rule. Never make the fast policy propose swerves.
 - Lane changes take three physical ticks, with occupied-lane collision checks,
   a matching SVG transition, and a brief road marker. Preserve typed supersession
   provenance in the distinct tick-log event and allowed application record, and
@@ -123,10 +136,28 @@ are authoritative; do not apply potentially older HTTP-control responses.
   supersession at 90 km/h, 12 °C, staleness 6 (allowed, brake released, turn 2 -> 3).
   To isolate temperature, hold staleness 6 in both runs: ice refuses speed,
   normal grip permits. Never claim the 3-versus-6 presets differ only in temperature.
-- Collision/completed passage freeze motion/actions; pending advice can still
+- In staged moments collision/completed passage freeze motion/actions; pending advice can still
   age and be checked. A stopped `braked` state may be revised by pending allowed
-  advice, without inventing acceleration. `continued` means completed passage,
+  advice, with recovery only after clearing the path. `continued` means completed passage,
   not the first continue proposal.
+- Free drive is live-only: reject it in STUB in both UI and server; the unchanged
+  recordings do not cover arbitrary lanes/traffic. Presets 1-4 explicitly reset
+  to staged. Never run paid recordings or live rehearsals without approval.
+- Free drive spawns contacts in the current lane from DRIVE_SEED, uses shared
+  observation/scenery and a cumulative odometer, and counts real episode
+  outcomes. After stopping, DRIVE_DWELL_S precedes a logged scenario clearance
+  (never model output), then DRIVE_GAP_S allows recovery before the next contact.
+  No model calls in dwell/gap/collision pause/finished phases.
+- Free drive reasons once per episode, at most one request in flight. Stamp fast
+  and slow work/envelopes with episode ids and recheck ownership at application.
+  Resolving an episode, Stop or Reset cancels old work; eventual callbacks cannot
+  affect another episode. Do not retry a refusal or service error within it.
+- Free-drive collision counts once and pauses until Start explicitly resumes
+  from rest into a gap. DRIVE_DURATION_S/live duration counts running ticks,
+  including dwell/gaps but excluding collision pause. Duration or Stop freezes
+  the scoreboard and cancels work; Reset preserves run kind and chosen duration.
+  Score slow decisions at application, not twice for two checkpoints; allowed
+  is permission, not necessarily applied. Both refusal-reason counters can rise.
 - Keep logs bounded and clean up SSE clients/timers. Preserve the slow gate
   decision on its advice card independently of the scrolling fast gate log.
 

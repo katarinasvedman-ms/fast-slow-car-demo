@@ -31,7 +31,7 @@ function render(events: Parameters<typeof renderDash>[1] = []): void {
   const scenario = scenarioFor(selection.update(current.snapshot));
   scenarioSelect.value = scenario.id;
   scenarioSelect.disabled = busy;
-  element('scenario-watch').textContent = scenario.watch;
+  element('scenario-watch').textContent = `What to watch: ${scenario.watch}`;
   element('scenario-caption').textContent = scenario.name;
   element('caption').textContent = `${scenario.name}: ${scenario.watch}`;
 }
@@ -105,20 +105,23 @@ select('hazard').addEventListener('change', () => {
   const value = select('hazard').value;
   if (value === 'elk' || value === 'small_animal' || value === 'ambiguous') tune([{ command: 'hazard', value }]);
 });
-for (const command of ['speed', 'temperature', 'threshold', 'duration'] as const) {
-  const control = input(command);
-  control.addEventListener(control.type === 'range' ? 'input' : 'change', () => {
-    if (!control.reportValidity()) return;
-    const precision = command === 'speed' ? 1 : command === 'threshold' ? 100 : command === 'temperature' ? 10 : null;
-    const value = precision === null ? control.valueAsNumber : Math.round(control.valueAsNumber * precision) / precision;
-    if (control.type === 'number') control.blur();
-    tune([{ command, value }]);
-  });
-}
-for (const [id, delta] of [['staleness-down', -1], ['staleness-up', 1]] as const) {
-  element(id).addEventListener('click', () => {
-    if (current) tune([{ command: 'staleness', value: current.snapshot.settings.stalenessLimitTicks + delta }]);
-  });
+for (const [command, ids] of [
+  ['speed', ['speed', 'speed-number']],
+  ['temperature', ['temperature', 'temperature-number']],
+  ['threshold', ['threshold', 'threshold-number']],
+  ['staleness', ['staleness', 'staleness-range']],
+  ['duration', ['duration']],
+] as const) {
+  for (const id of ids) {
+    const control = input(id);
+    control.addEventListener(control.type === 'range' ? 'input' : 'change', () => {
+      if (!control.reportValidity()) { render(); return; }
+      const precision = command === 'threshold' ? 100 : command === 'temperature' ? 10 : 1;
+      const value = Math.round(control.valueAsNumber * precision) / precision;
+      if (control.type === 'number') control.blur();
+      tune([{ command, value }]);
+    });
+  }
 }
 
 const removePresenter = installPresenter(run, start, mute, () => busy || !current, reportError);
@@ -129,7 +132,6 @@ const disconnect = connect((view, events) => {
   audio.update(view, events);
 }, (status) => {
   element('connection').textContent = status;
-  element('connection').hidden = status === 'CONNECTED';
   element('connection').dataset.state = status === 'CONNECTED' ? 'good' : 'warning';
   if (status !== 'CONNECTED') audio.reset();
 }, reportError);

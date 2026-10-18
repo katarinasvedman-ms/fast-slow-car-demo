@@ -7,6 +7,32 @@ import { loadConfig } from '../src/config.js';
 import { Simulation } from '../src/simulation.js';
 import type { GateRecord, Snapshot } from '../src/types.js';
 import { fakeModels, deferred } from './helpers.js';
+import { createMirrorView } from '../client/cockpit/mirror.js';
+import { Vector2, Vector3 } from 'three';
+
+test('rear-view reflection keeps left lanes left and follows the ego lane without moving traffic', () => {
+  const mirror = createMirrorView();
+  const traffic = new Vector3(-3.6, 0.55, 20);
+  const screenX = (carLane: number, vehicle = traffic) => {
+    mirror.setLane(carLane);
+    const point = new Vector3(vehicle.x, vehicle.y, vehicle.z).project(mirror.camera);
+    mirror.target.texture.updateMatrix();
+    return mirror.target.texture.transformUv(new Vector2((point.x + 1) / 2, 0.5)).x;
+  };
+  try {
+    const lane2 = screenX(2);
+    const lane3 = screenX(3);
+    assert.ok(lane2 < 0.5);
+    assert.ok(lane3 < lane2);
+    assert.ok(screenX(2.5) < lane2 && screenX(2.5) > lane3);
+    assert.ok(Math.abs((0.5 - lane3) - 2 * (0.5 - lane2)) < 1e-12);
+    assert.ok(Math.abs(screenX(1) - 0.5) < 1e-12);
+    assert.ok(screenX(2, new Vector3(3.6, 0.55, 20)) > 0.5);
+    assert.deepEqual([traffic.x, traffic.y, traffic.z], [-3.6, 0.55, 20]);
+  } finally {
+    mirror.dispose();
+  }
+});
 
 function snapshot(): Snapshot {
   const sim = new Simulation(loadConfig({ STUB: '1' }), fakeModels());

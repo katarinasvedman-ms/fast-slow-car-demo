@@ -9,6 +9,10 @@ declare module 'three' {
     set(x: number, y: number, z: number): this;
     project(camera: PerspectiveCamera): this;
   }
+  export class Vector2 {
+    constructor(x?: number, y?: number);
+    x: number; y: number;
+  }
   export class Object3D {
     position: Vector3;
     rotation: Vector3;
@@ -32,14 +36,25 @@ declare module 'three' {
     aspect: number;
     updateProjectionMatrix(): void;
   }
+  export class OrthographicCamera extends Object3D {
+    constructor(left: number, right: number, top: number, bottom: number, near: number, far: number);
+  }
+  export class WebGLRenderTarget {
+    constructor(width: number, height: number);
+    texture: Texture;
+    setSize(width: number, height: number): void;
+    dispose(): void;
+  }
   export class WebGLRenderer {
     constructor(options: { canvas: HTMLCanvasElement; antialias: boolean; powerPreference: string });
     setPixelRatio(ratio: number): void;
+    getPixelRatio(): number;
+    setRenderTarget(target: WebGLRenderTarget | null): void;
     setSize(width: number, height: number, updateStyle?: boolean): void;
     setViewport(x: number, y: number, width: number, height: number): void;
     setScissor(x: number, y: number, width: number, height: number): void;
     setScissorTest(enabled: boolean): void;
-    render(scene: Scene, camera: PerspectiveCamera): void;
+    render(scene: Scene, camera: PerspectiveCamera | OrthographicCamera): void;
     dispose(): void;
     forceContextLoss(): void;
   }
@@ -54,14 +69,21 @@ declare module 'three' {
     map: Texture | null;
   }
   export class MeshBasicMaterial extends Material {
-    constructor(options: { color: Color; map?: Texture; transparent?: boolean; opacity?: number; wireframe?: boolean; depthWrite?: boolean });
+    constructor(options: { color?: Color; map?: Texture; transparent?: boolean; opacity?: number; wireframe?: boolean; depthWrite?: boolean });
     opacity: number;
   }
   export class Mesh extends Object3D {
     constructor(geometry: BufferGeometry, material: Material);
     geometry: BufferGeometry;
   }
-  export class Texture { dispose(): void; colorSpace: string; }
+  export class Texture {
+    dispose(): void;
+    colorSpace: string;
+    repeat: Vector2;
+    offset: Vector2;
+    updateMatrix(): void;
+    transformUv(uv: Vector2): Vector2;
+  }
   export class CanvasTexture extends Texture { constructor(canvas: HTMLCanvasElement); }
   export class TextureLoader {
     load(url: string, onLoad?: (texture: Texture) => void, onProgress?: undefined, onError?: (error: unknown) => void): Texture;

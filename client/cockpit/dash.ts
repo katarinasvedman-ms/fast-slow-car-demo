@@ -124,14 +124,20 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   text('model-error', [fast.error, advice.error].filter(Boolean).join(' / '));
   element('fresh-lamp').dataset.state = view.fresh;
   element('permitted-lamp').dataset.state = view.permitted;
-  text('fresh-value', view.fresh === 'off' ? '--' : view.fresh === 'bad' ? 'STALE' : 'YES');
-  text('permitted-value', view.permitted === 'off' ? '--' : view.permitted === 'bad' ? 'TOO FAST' : 'YES');
+  text('fresh-value', view.fresh === 'off' ? '--' : view.fresh === 'bad' ? 'NO' : 'YES');
+  text('permitted-value', view.permitted === 'off' ? '--' : view.permitted === 'bad' ? 'NO' : 'YES');
   text('gate-verdict', advice.gate ? advice.gate.allowed ? 'ALLOWED' : 'REFUSED' : 'WAITING');
   element('gate-verdict').dataset.state = advice.gate ? advice.gate.allowed ? 'good' : 'bad' : 'off';
   text('gate-history', view.historical && advice.gate ? 'Previous' : '');
   text('gate-reasons', advice.gate && !advice.gate.allowed
     ? advice.gate.reasons.map((item) => item.detail).join(' / ')
     : advice.gate ? 'Both checks passed. Application is evaluated separately.' : 'No slow advice checked yet.');
+  element('gate-reasons-visible').replaceChildren(...(advice.gate && !advice.gate.allowed
+    ? advice.gate.reasons.map((reason) => {
+      const line = document.createElement('div');
+      line.textContent = reason.detail;
+      return line;
+    }) : []));
   text('gate-context', view.historical ? 'PREVIOUS ASSESSMENT / GATE RESULT' : 'LATEST SLOW GATE RESULT');
   text('gate-rule', `AGE > ${settings.stalenessLimitTicks} TICKS / SWERVE > ${settings.swerveSpeedLimit} KM/H`);
   text('temperature-status', `OUTSIDE ${world.ambientTempC} °C / ${settings.swerveTier.toUpperCase()} / LIMIT ${settings.swerveSpeedLimit} KM/H`);
@@ -142,7 +148,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
       : advice.status === 'error' ? 'ADVICE FAILED' : advice.status === 'idle' ? 'AWAITING START' : 'ASSESSMENT RECEIVED');
   element('thinking-ring').classList.toggle('thinking', advice.status === 'thinking');
   text('advice-action', advice.data
-    ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / L${advice.data.targetLane}` : ''}`
+    ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / LANE ${advice.data.targetLane}` : ''}`
     : advice.status === 'thinking' ? 'THINKING' : advice.status === 'error' ? 'FAILED' : 'NO ADVICE');
   text('advice-action-full', advice.data
     ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` / LANE ${advice.data.targetLane}` : ''}`
@@ -150,13 +156,15 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   text('advice-history', view.historical ? completedEpisode ? 'Previous episode' : `Previous / ${advice.status}`
     : advice.application?.split(' - ')[0] ?? (advice.data ? 'Recommendation' : snapshot.mode === 'fast_only' ? 'Disabled / fast only' : 'Awaiting advice'));
   const rationale = advice.data?.rationale ?? 'The world keeps moving while reasoning works.';
-  text('advice-rationale', rationale.split(/(?<=[.!?])\s/)[0] ?? rationale);
+  text('advice-rationale', rationale);
   text('advice-rationale-full', rationale);
   text('advice-stamp', advice.data
     ? `Observed #${advice.data.observedAtTick} / arrived #${advice.data.arrivedAtTick} / ${advice.data.latencyMs.toFixed(0)} ms model latency`
     : snapshot.slowModelName);
   text('freshness-label', view.age === null ? 'NO OBSERVATION YET'
     : `CURRENT OBSERVATION AGE ${view.age} / ${settings.stalenessLimitTicks} TICKS`);
+  text('advice-stamp-visible', element('advice-stamp').textContent ?? '');
+  text('freshness-label-visible', element('freshness-label').textContent ?? '');
   const freshness = element('freshness');
   const positions = freshnessPositions(view.age, settings.stalenessLimitTicks);
   freshness.style.width = `${positions.agePercent}%`;
@@ -191,21 +199,18 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   select('hazard').value = snapshot.hazardVariant ?? '';
   select('hazard').closest('label')?.toggleAttribute('hidden', snapshot.drive.kind === 'free');
   element('reset-help').hidden = !resetRequired;
-  text('speed-setting', String(world.selectedSpeedKmh));
-  text('threshold-setting', snapshot.threshold.toFixed(2));
-  text('temperature-setting', `${world.ambientTempC} °C`);
   text('temperature-help', `${settings.swerveTier} / ${settings.swerveSpeedLimit} km/h`);
   text('staleness-help', `${settings.stalenessLimitTicks} ticks = ${(settings.stalenessLimitTicks * settings.tickMs / 1000).toFixed(1)} s`);
   for (const [id, value] of [
-    ['speed', world.selectedSpeedKmh], ['temperature', world.ambientTempC],
-    ['threshold', snapshot.threshold], ['staleness', settings.stalenessLimitTicks],
+    ['speed', world.selectedSpeedKmh], ['speed-number', world.selectedSpeedKmh],
+    ['temperature', world.ambientTempC], ['temperature-number', world.ambientTempC],
+    ['threshold', snapshot.threshold], ['threshold-number', snapshot.threshold],
+    ['staleness', settings.stalenessLimitTicks], ['staleness-range', settings.stalenessLimitTicks],
   ] as const) {
     const control = input(id);
     control.value = String(value);
     control.disabled = tuningLocked;
   }
-  element('staleness-down').toggleAttribute('disabled', busy || tuningLocked || settings.stalenessLimitTicks <= 0);
-  element('staleness-up').toggleAttribute('disabled', busy || tuningLocked || settings.stalenessLimitTicks >= 1000);
   element('start').toggleAttribute('disabled', busy || !canStart(snapshot));
   element('reset').toggleAttribute('disabled', busy);
   for (const event of events) {

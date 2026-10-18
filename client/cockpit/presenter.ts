@@ -27,7 +27,7 @@ export function installPresenter(
     element('scenario-caption').hidden = !rail.hidden;
     element('presenter').setAttribute('aria-pressed', String(presenting));
     railToggle.setAttribute('aria-expanded', String(!rail.hidden));
-    railToggle.textContent = rail.hidden ? 'Tune [T]' : 'Hide [T]';
+    railToggle.textContent = rail.hidden ? 'Controls [T]' : 'Controls [T] / Hide';
   };
   const toggleRail = () => {
     collapsed = !rail.hidden;

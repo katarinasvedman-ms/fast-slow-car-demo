@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import type { CockpitEvent, CockpitView } from './model.js';
 import { contactPosition } from './model.js';
+import { createMirrorView } from './mirror.js';
 
 export class RoadScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1600);
-  private rear = new THREE.PerspectiveCamera(25, 3.5, 0.1, 150);
+  private mirrorView = createMirrorView();
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[] = [];
   private textures: THREE.Texture[] = [];
@@ -59,7 +60,7 @@ export class RoadScene {
     const color = this.color(name);
     const material = new THREE.MeshStandardMaterial({
       color, roughness: name === 'asphalt' ? 0.36 : 0.8, metalness: name === 'asphalt' ? 0.28 : 0.15,
-      ...(glowing ? { emissive: color, emissiveIntensity: 0.7 } : {}),
+      ...(glowing ? { emissive: color, emissiveIntensity: name === 'headlight' ? 2 : 1 } : {}),
     });
     this.materials.push(material);
     return material;
@@ -85,10 +86,10 @@ export class RoadScene {
     this.release();
     this.scene = new THREE.Scene();
     this.scene.background = this.color('night');
-    this.scene.fog = new THREE.Fog(this.color('night'), 45, 650);
-    this.scene.add(new THREE.HemisphereLight(this.color('horizon'), this.color('night'), 2.1));
+    this.scene.fog = new THREE.Fog(this.color('night'), 90, 650);
+    this.scene.add(new THREE.HemisphereLight(this.color('horizon'), this.color('night'), 3.2));
     const asphalt = this.material('asphalt');
-    const paint = this.material('road-line');
+    const paint = this.material('road-line', true);
     const shoulder = this.material('shoulder');
     const road = this.box(11.2, 0.12, 1700, asphalt);
     road.position.set(0, -0.1, -720);
@@ -170,9 +171,9 @@ export class RoadScene {
     this.animalIdentity = null;
     this.lamps = [];
     for (const offset of [-0.65, 0.65]) {
-      const lamp = new THREE.SpotLight(this.color('headlight'), 110, 75, 0.48, 0.8, 1);
+      const lamp = new THREE.SpotLight(this.color('headlight'), 220, 150, 0.48, 0.8, 1);
       lamp.position.set(offset, 0.7, -1);
-      lamp.target.position.set(offset, 0, -50);
+      lamp.target.position.set(offset, 0, -70);
       this.scene.add(lamp, lamp.target);
       this.lamps.push(lamp);
     }
@@ -297,35 +298,43 @@ export class RoadScene {
     const { width, height } = this.canvas.getBoundingClientRect();
     const canvas = this.canvas.getBoundingClientRect();
     const projected = new THREE.Vector3(this.contact.position.x, this.contact.position.y, this.contact.position.z).project(this.camera);
-    const visible = position !== null && projected.z >= -1 && projected.z <= 1 && Math.abs(projected.x) <= 1;
+    const visible = position !== null && projected.z >= -1 && projected.z <= 1 &&
+      Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1;
     this.sensor.style.visibility = visible ? 'visible' : 'hidden';
     if (visible) {
       const left = (projected.x + 1) * width / 2;
       const top = (1 - projected.y) * height / 2;
-      this.sensor.style.left = `${canvas.left + left}px`;
-      this.sensor.style.top = `${canvas.top + top}px`;
-      const labelWidth = 400;
-      const labelLeft = Math.max(368, Math.min(width - labelWidth - 24, left + 48));
+      this.sensor.style.left = `${left}px`;
+      this.sensor.style.top = `${top}px`;
+      const label = this.sensor.querySelector<HTMLElement>('.sensor-label');
+      const labelWidth = label?.offsetWidth ?? 400;
+      const labelHeight = label?.offsetHeight ?? 100;
+      const labelLeft = Math.max(24, Math.min(width - labelWidth - 24, Math.max(width / 2 + 160, left + 48)));
       this.sensor.style.setProperty('--label-x', `${labelLeft - left}px`);
-      this.sensor.style.setProperty('--label-y', `${Math.max(156, height * 0.27) - top}px`);
+      this.sensor.style.setProperty('--label-y', `${Math.max(12, Math.min(height - labelHeight - 36, height * 0.5)) - top}px`);
       this.sensor.style.setProperty('--contact-size', `${Math.max(22, Math.min(88, 900 / Math.max(1, -position.z)))}px`);
     }
     this.renderer.setScissorTest(false);
     this.renderer.setViewport(0, 0, width, height);
     this.renderer.render(this.scene, this.camera);
     const mirror = this.mirror.getBoundingClientRect();
-    this.rear.position.set(x, 1.6, 0);
-    this.rear.lookAt(x, 1, 40);
-    this.rear.aspect = mirror.width / Math.max(mirror.height, 1);
-    this.rear.updateProjectionMatrix();
+    const { camera: rear, target, screen, screenCamera } = this.mirrorView;
+    this.mirrorView.setLane(this.shownLane);
+    rear.aspect = mirror.width / Math.max(mirror.height, 1);
+    rear.updateProjectionMatrix();
+    target.setSize(Math.max(1, Math.round(mirror.width * this.renderer.getPixelRatio())),
+      Math.max(1, Math.round(mirror.height * this.renderer.getPixelRatio())));
+    this.renderer.setRenderTarget(target);
+    this.scene.background = this.color('shoulder');
+    this.renderer.render(this.scene, rear);
+    this.scene.background = this.color('night');
+    this.renderer.setRenderTarget(null);
     const left = mirror.left - canvas.left;
     const bottom = canvas.bottom - mirror.bottom;
     this.renderer.setScissorTest(true);
     this.renderer.setScissor(left, bottom, mirror.width, mirror.height);
     this.renderer.setViewport(left, bottom, mirror.width, mirror.height);
-    this.scene.background = this.color('shoulder');
-    this.renderer.render(this.scene, this.rear);
-    this.scene.background = this.color('night');
+    this.renderer.render(screen, screenCamera);
     this.renderer.setScissorTest(false);
   };
 
@@ -342,6 +351,7 @@ export class RoadScene {
     this.resizeObserver.disconnect();
     this.canvas.removeEventListener('webglcontextlost', this.contextLost);
     this.release();
+    this.mirrorView.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }

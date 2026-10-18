@@ -52,15 +52,23 @@ uses the same world, SSE stream, controls, physics, and gate. Opening both pages
 does not create separate runs; Reset in either page resets the shared world.
 The **2D explainer** link returns to the original view.
 
-The road fills the viewport behind a translucent dashboard capped at 28% of its
-height. A narrow **live tuning rail** is visible on the left by default, with
-speed, damage-threshold and temperature sliders and a staleness stepper.
+The windshield occupies the space above a roomy **Controls** band and three
+large dashboard cards, ordered **REFLEX | THE GATE | ADVISER**. The Adviser is
+widest; the dashboard grows with its content instead of using a 28% height cap.
+The band is open by default: Scenario, Mode, Hazard, then paired number inputs
+and sliders for speed, damage threshold, staleness and outside temperature.
+The layout reserves separate rows for the windshield, controls and instruments,
+including on short wide windows; the connection, backend and tick badges stay
+together at the top right.
 The named **Scenario** dropdown resets, applies settings, and waits for Start;
 it never starts a run. Editing a setting returns it to **Custom**.
 Details starts closed and contains the exact captured sensor
 input, full rationale, application/supersession messages and tick history.
-Main-view text is at least 28 px, with larger speed and gate verdicts, and does
-not scroll. The Adviser shows one clipped rationale sentence, not a text feed.
+Controls have labels of at least 18 px. The Adviser shows its full rationale
+at 20 px or larger without an ellipsis, observed/arrived ticks, model latency
+and the freshness bar. The verdict and speed remain large. Both gate lamps
+answer **FRESH ENOUGH? / WITHIN LIMITS?** with YES/NO; each real refusal detail
+is shown in words on the card, independently of the current temperature setting.
 
 The windshield uses locally served Three.js **0.186.1**, MIT licensed; the
 licence is in `public\vendor\THREE-LICENSE.txt`. `npm run build` copies the pinned
@@ -77,7 +85,7 @@ permission checks independently, including both reasons when refused.
 During reassessment the previous recommendation and its gate/application result
 remain labelled as history; the freshness bar shows elapsed observation age
 and a movable amber staleness-limit marker on the same tick scale (at least
-0-10 ticks, expanded for larger ages or limits). The rail converts the limit
+0-10 ticks, expanded for larger ages or limits). The band converts the limit
 to seconds. Temperature shows the actual grip tier and swerve limit; selected
 speed has its own marker beside the actual-speed display.
 Allowed advice is not presented as an applied action until the snapshot says so.
@@ -87,8 +95,8 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | Space / Start | Start the world; enable modest synthesised audio after interaction |
 | R / Reset | Cancel the run and return to idle |
 | Details / Close / Escape | Show or hide sensor input and full decision details |
-| T / Tuning tab | Collapse or reopen the live tuning rail |
-| P / Present | Hide the rail and show a scenario-name caption; press again to restore the rail |
+| T / Controls tab | Collapse the band to its slim control bar, or reopen it |
+| P / Present | Hide the controls and show a scenario-name caption; press again to restore them |
 | M / Sound | Toggle mute |
 | F / Fullscreen | Enter or leave fullscreen |
 | Confident elk | Fast only, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
@@ -105,7 +113,7 @@ mode/hazard response triggers Reset before one retry; other errors remain explic
 Shortcuts do not steal
 keystrokes from editable controls; focused buttons retain normal keyboard use.
 The single scenario/settings/description table lives in `client\cockpit\controls.ts`.
-Use the rail for Blocking mode, Small animal, or other tuning settings.
+Use the band for Blocking mode, Small animal, or other tuning settings.
 The old numbered buttons and 1-4 shortcuts are removed from the cockpit only;
 the 2D page is unchanged.
 
@@ -124,15 +132,18 @@ Only a real collision triggers the brief full-view cutout, pale flash, camera
 shake and collision overlay. That impact illustration is not a second world
 object or an invented outcome.
 Thin dashed markings fade out close to the camera instead of becoming heavy
-foreground slashes. Asphalt sheen, a faint horizon glow, soft brake-light falloff,
+foreground slashes. Brighter headlight pools, emissive road edges and reflectors,
+asphalt sheen, a lit horizon glow, soft brake-light falloff,
 hood edge and A-pillars frame the view. The mirror shows the existing observed
-vehicle behind, not additional traffic.
-The enlarged steering wheel sits in a reserved bottom-centre dashboard space;
-REFLEX and Adviser are on its left and the gate is on its right. The risk
+vehicle behind, not additional traffic. Its rear-camera image is reflected
+horizontally, so lane 1 stays left, and follows the car's reported lane throughout
+a turn without moving the traffic or changing its fixed 20 m gap.
+The smaller steering wheel sits at the bottom centre of the windshield,
+partly behind the hood, never in a dashboard card. The risk
 number is below, not on top of, its dial. A large envelope bounces back on a
 real refusal or passes the gate on a real allowance; reconnection does not
-replay old deliveries. Full action, rationale and application details remain
-in Details.
+replay old deliveries. The full rationale and provenance are on the main Adviser
+card; application details, sensor input and history remain in Details.
 Road displacement follows reported distance, lane motion follows reported turn
 progress, and smoothing only trails known state. Traffic retains its world-backed
 fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.

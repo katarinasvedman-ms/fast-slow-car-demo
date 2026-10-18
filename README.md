@@ -54,7 +54,9 @@ The **2D explainer** link returns to the original view.
 
 The windshield sits above three dashboard cards, ordered
 **REFLEX | THE GATE | ADVISER**, with the **Controls** band below the cards at
-the bottom. Cards and controls together occupy **at most 50% of viewport height**.
+the bottom. The group is centered at 90% width (up to 1800 px), leaving space
+on both sides. Cards and controls together occupy **at most 46% of viewport height**,
+below the 50% ceiling.
 The Adviser is widest. Compact spacing and proportional fitting keep the entire
 lower panel inside that budget as advice, window size or control visibility changes,
 without cropping the rationale or introducing main-view scrollbars.
@@ -65,8 +67,10 @@ including on short wide windows; the connection, backend and tick badges stay
 together at the top right.
 The named **Scenario** dropdown resets, applies settings, and waits for Start;
 it never starts a run. Editing a setting returns it to **Custom**.
-Details starts closed and contains the exact captured sensor
-input, full rationale, application/supersession messages and tick history.
+Details starts closed. Its opaque drawer has a fixed close header, compact
+14 px captured-input text near the top, and grouped sensor, gate, application
+and full-advice cards. Run settings, tick history and teaching notes are
+collapsed by default; the content scrolls independently of the header.
 Controls use 18 px base labels. The Adviser shows its full rationale
 at a 20 px base size without an ellipsis, observed/arrived ticks, model latency
 and the freshness bar. The verdict and speed remain large. Both gate lamps
@@ -100,7 +104,7 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | Details / Close / Escape | Show or hide sensor input and full decision details |
 | T / Controls tab | Collapse the band to its slim control bar, or reopen it |
 | P / Present | Hide the controls and show a scenario-name caption; press again to restore them |
-| M / Sound | Toggle mute |
+| M / Sound (top bar) | Toggle sound on/off, including with controls hidden or in presenter mode |
 | F / Fullscreen | Enter or leave fullscreen |
 | Confident elk | Fast only, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
 | Ambiguous hazard | Fast only, Ambiguous, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
@@ -120,12 +124,17 @@ Use the band for Blocking mode, Small animal, or other tuning settings.
 The old numbered buttons and 1-4 shortcuts are removed from the cockpit only;
 the 2D page is unchanged.
 
-Before an outcome the cockpit shows only the sensor contact, even with an
-explicit Elk selection. Animal identity is revealed only from `world.identity`.
+Beyond 150 m the cockpit shows only the sensor contact, even with an explicit
+Elk selection. At **150 m or closer**, the animal appears for the audience
+while driving, so it can be seen before a safe pass. Identity comes only from
+the audience-facing `world.identity`, never the dropdown. A terminal outcome
+also reveals identity, including a stop farther away.
+**Neither model receives the identity, image or reveal state**: both still get
+the unchanged derived sensor text. This applies to Ambiguous and free drive too.
 The labelled thermal/radar overlay can show contacts beyond the headlights and
 fog; the contact is projected from its sensor lane and range into the windshield,
 including during lane changes. Its range caption sits beside the contact rather
-than on the lane markings. The terminal reveal does not move a distant animal closer.
+than on the lane markings. Revealing an animal never moves it closer.
 Cockpit-only `*-cutout.png` assets remove the supplied images' white matte;
 the original 2D assets are unchanged. Revealed world cutouts use headlight-reactive
 materials at the reported range and fade in over 300 ms. There is no corner
@@ -180,10 +189,11 @@ Gate, threshold, collision, and model-decision rules are unchanged by this scene
 Selecting Elk immediately shows the supplied moose image on the road; Small
 animal shows the squirrel image from `public\images`, including after Reset.
 These are audience-only previews selected from the dropdown; models still receive
-sensor text only. Ambiguous keeps the unidentified contact marker until an outcome
-reveals its identity.
+sensor text only. Ambiguous keeps the unidentified contact marker until the
+150 m audience reveal or a terminal outcome.
 Free drive has no explicit audience-selected hazard: both views conceal generated
-identity until an outcome, and the public `hazardVariant` is null.
+identity until the 150 m audience reveal or a terminal outcome, and the public
+`hazardVariant` is null.
 
 ## Rehearse the four moments
 
@@ -277,7 +287,8 @@ not instantly increase speed. Recovery is integrated only once fully outside the
 sensed contact's path. Later fresh fast actions can brake again while in its path,
 but do not cancel the physical lane change already in progress. During a turn,
 the car still occupies the hazard lane until it finishes; it cannot teleport
-past a contact. The Ambiguous contact's identity is revealed only after an outcome.
+past a contact. The Ambiguous contact's identity is revealed to the audience
+within 150 m or after an outcome, never added to either model's input.
 
 ## Free drive (live only)
 

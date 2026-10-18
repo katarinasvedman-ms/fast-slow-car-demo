@@ -49,7 +49,7 @@ export function mapSnapshot(snapshot: Snapshot): CockpitView {
       ? turning.fromLane + (turning.toLane - turning.fromLane) * turning.elapsedTicks / turning.durationTicks
       : world.carLane,
     travelledM: world.distanceTravelledM,
-    identity: world.outcome === 'running' ? null : world.identity,
+    identity: world.identity,
     fresh: decision === null ? 'off' : refused('stale_advice') ? 'bad' : 'good',
     permitted: decision === null ? 'off' : refused('prohibited_action') ? 'bad' : 'good',
     historical: advice.data !== null && (advice.status !== 'ready' ||

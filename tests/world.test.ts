@@ -93,7 +93,7 @@ test('clear-path recovery integrates acceleration and caps speed, but cannot acc
   assert.throws(() => buildObservation(gap, 'elk'), /active sensor contact/);
 });
 
-test('observations contain only derived sensors; public snapshots conceal truth until the outcome', () => {
+test('observations contain only derived sensors; public snapshots conceal identity outside headlight range', () => {
   const config = loadConfig({});
   const world = createWorld(config, 90, 'ambiguous');
   const text = buildObservation(world, 'ambiguous');
@@ -110,6 +110,59 @@ test('observations contain only derived sensors; public snapshots conceal truth 
   assert.equal('hazard' in view, false);
   assert.equal('adjacentLanesBlocked' in view, false);
   assert.equal(publicWorld({ ...world, outcome: 'braked' }).identity, 'elk');
+});
+
+test('audience identity is revealed at 150 m in either lane without changing sensors or exposing cleared hazards', () => {
+  const world = createWorld(loadConfig({}), 90, 'ambiguous');
+  for (const kind of ['elk', 'small_animal'] as const) {
+    const far = { ...world, hazard: { ...world.hazard, kind, distanceM: 150.01 } };
+    assert.equal(publicWorld(far).identity, null);
+    for (const carLane of [2, 3] as const) {
+      const near = { ...far, carLane, hazard: { ...far.hazard, distanceM: 150 } };
+      const before = structuredClone(near);
+      assert.equal(publicWorld(near).identity, kind);
+      assert.equal(publicWorld(near).outcome, 'running');
+      assert.equal(publicWorld({ ...near, hazardActive: false }).identity, null);
+      const otherKind = { ...near, hazard: { ...near.hazard, kind: kind === 'elk' ? 'small_animal' as const : 'elk' as const } };
+      assert.equal(buildObservation(near, 'ambiguous'), buildObservation(otherKind, 'ambiguous'));
+      assert.deepEqual(observeScene(near, 'ambiguous'), observeScene(otherKind, 'ambiguous'));
+      assert.doesNotMatch(buildObservation(near, 'ambiguous'), /elk|small_animal|identity|"kind"|image/i);
+      assert.deepEqual(near, before);
+    }
+  }
+});
+
+test('both models still receive only sensor text when the moving world reveals an animal to the audience', async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  const inputs: { model: 'fast' | 'slow'; text: string }[] = [];
+  const simulation = new Simulation(loadConfig({ INITIAL_HAZARD_DISTANCE_M: '151' }), fakeModels({
+    fast: { name: 'Capture fast', async decide(observation) {
+      inputs.push({ model: 'fast', text: observation });
+      return { majorDamageRisk: 0.1, adjacentLaneClear: 0.9, latencyMs: 1 };
+    } },
+    slow: { name: 'Capture slow', async advise(observation) {
+      inputs.push({ model: 'slow', text: observation });
+      return { action: 'continue', rationale: 'Test recommendation.', latencyMs: 1 };
+    } },
+  }), () => Date.now());
+  context.after(() => simulation.dispose());
+  simulation.setHazard('ambiguous');
+  assert.equal(simulation.snapshot().world.identity, null);
+  simulation.start();
+  await flush();
+  context.mock.timers.tick(400);
+  await flush();
+  assert.equal(simulation.snapshot().world.outcome, 'running');
+  assert.equal(simulation.snapshot().world.identity, 'elk');
+  for (const model of ['fast', 'slow'] as const) {
+    const calls = inputs.filter((input) => input.model === model);
+    assert.ok(calls.some((input) => /range 151 m/.test(input.text)));
+    assert.ok(calls.some((input) => /range 141 m/.test(input.text)));
+    for (const { text } of calls) {
+      assert.match(text, /Thermal and radar contact/);
+      assert.doesNotMatch(text, /elk|small_animal|identity|"kind"|image/i);
+    }
+  }
 });
 
 test('neither model receives the trusted temperature or grip policy', async () => {

@@ -93,7 +93,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   }
   text('identity-note', identity === null
     ? 'Sensor overlay / not headlight visibility'
-    : 'Identity at outcome / actual range');
+    : world.outcome === 'running' ? 'Audience view / not model input' : 'Identity at outcome / actual range');
   element('collision-overlay').hidden = world.outcome !== 'collision';
   text('collision-detail', `${world.distanceM.toFixed(0)} m / ${snapshot.drive.kind === 'free' && snapshot.drive.phase === 'collision'
     ? 'Press Start to resume' : 'Reset to replay'}`);

@@ -19,18 +19,25 @@ test('bottom deck fits cards and controls together within half the viewport and 
     else delete globalThis.getComputedStyle;
   });
   const deck = { style: {} };
+  const deckWidth = 1800;
   let naturalHeight = 500;
   const content = {
     style: {},
-    getBoundingClientRect: () => ({ height: naturalHeight * Number(content.style.zoom) }),
+    getBoundingClientRect: () => {
+      const scale = content.style.transform === 'none' ? 1 : Number(content.style.transform.slice(6, -1));
+      return {
+        height: naturalHeight * scale,
+        width: deckWidth * Number.parseFloat(content.style.width) / 100 * scale,
+      };
+    },
   };
   fitBottomDeck(deck, content);
-  assert.equal(Number(content.style.zoom), 0.76);
+  assert.equal(content.style.transform, 'scale(0.76)');
   assert.ok(Number.parseFloat(deck.style.height) <= limit);
-  assert.ok(Math.abs(Number(content.style.zoom) * Number.parseFloat(content.style.width) - 100) < 1e-10);
+  assert.ok(Math.abs(content.getBoundingClientRect().width - deckWidth) < 1e-10);
   limit = 540;
   fitBottomDeck(deck, content);
-  assert.equal(content.style.zoom, '1');
+  assert.equal(content.style.transform, 'scale(1)');
   assert.equal(content.style.width, '100%');
   assert.equal(deck.style.height, '500px');
   naturalHeight = 250;
@@ -139,4 +146,11 @@ test('cockpit renders full advice, independent refusal details and both tuning i
   renderDash(mapSnapshot(state), [], false);
   assert.equal(nodes.get('staleness-range').hidden, false);
   assert.equal(nodes.get('staleness-range').value, '3');
+  state.world.identity = 'elk';
+  state.world.outcome = 'running';
+  renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('contact-name').textContent, 'ELK');
+  assert.equal(nodes.get('thermal-contact').hidden, true);
+  assert.equal(nodes.get('identity-note').textContent, 'Audience view / not model input');
+  assert.equal(nodes.get('impact-image').hidden, true);
 });

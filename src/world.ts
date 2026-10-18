@@ -3,6 +3,9 @@ import type { Action, HazardVariant, Lane, WorldState, WorldView } from './types
 import { senseContact } from './observation.js';
 import { hazardInPath } from './policy.js';
 
+// Audience-only reveal distance, matching the cockpit headlights; not model input.
+const audienceRevealDistanceM = 150;
+
 export function createWorld(
   config: Config,
   selectedSpeedKmh = 90,
@@ -119,7 +122,8 @@ export function publicWorld(world: WorldState): WorldView {
     laneChange: world.laneChange ? { ...world.laneChange } : null,
     hazardLane: world.hazard.lane,
     distanceM: world.hazard.distanceM,
-    identity: !world.hazardActive || world.outcome === 'running' ? null : world.hazard.kind,
+    identity: world.hazardActive && (world.outcome !== 'running' || world.hazard.distanceM <= audienceRevealDistanceM)
+      ? world.hazard.kind : null,
     braking: world.braking,
     outcome: world.outcome,
   };

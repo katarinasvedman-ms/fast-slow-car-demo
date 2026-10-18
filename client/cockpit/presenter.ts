@@ -2,11 +2,11 @@ import type { Control } from './controls.js';
 import { element } from './dash.js';
 
 export function fitBottomDeck(deck: HTMLElement, content: HTMLElement): void {
-  content.style.zoom = '1';
+  content.style.transform = 'none';
   content.style.width = '100%';
   const limit = Number.parseFloat(getComputedStyle(deck).maxHeight);
   const scale = Math.min(1, limit / Math.max(1, content.getBoundingClientRect().height));
-  content.style.zoom = String(scale);
+  content.style.transform = `scale(${scale})`;
   content.style.width = `${100 / scale}%`;
   deck.style.height = `${Math.min(limit, content.getBoundingClientRect().height)}px`;
 }

@@ -52,7 +52,7 @@ function record(phase: GateRecord['phase'] = 'proposal'): GateRecord {
   };
 }
 
-test('cockpit keeps identity concealed, follows reported turn progress, and preserves independent refusals', () => {
+test('cockpit uses audience identity from the snapshot, follows turn progress, and preserves independent refusals', () => {
   const value = snapshot();
   value.hazardVariant = 'elk';
   value.world.tick = 5;
@@ -71,7 +71,7 @@ test('cockpit keeps identity concealed, follows reported turn progress, and pres
   value.advice.gate = { allowed: false, reasons: [{ reason: 'stale_advice', detail: 'Stale only.' }] };
   assert.equal(mapSnapshot(value).permitted, 'good');
   value.world.identity = 'elk';
-  assert.equal(mapSnapshot(value).identity, null);
+  assert.equal(mapSnapshot(value).identity, 'elk');
   value.world.outcome = 'braked';
   assert.equal(mapSnapshot(value).identity, 'elk');
 });

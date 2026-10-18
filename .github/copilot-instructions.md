@@ -58,12 +58,14 @@ are authoritative; do not apply potentially older HTTP-control responses.
   or `adjacentLanesBlocked` to either model. Outside `ambientTempC` is a trusted
   vehicle sensor for the deterministic gate only: never add temperature, grip
   tier or its speed limit to observations or `observeScene`. Fixtures stay unchanged.
-  Public world projection conceals
-  hazard identity until a terminal outcome. The UI may preview moose/squirrel
-  images from the explicit dropdown selection for the audience; Ambiguous stays
-  unidentified until an outcome. Those previews apply only to explicit staged
-  selections; free drive never exposes generated kinds before reveal and sends
-  null for the public hazardVariant. Never send those images to either model.
+  Public world projection reveals identity to the audience at <=150 m (matching
+  the cockpit headlight range), or at a terminal outcome; outside that range it
+  stays concealed while running. This is presentation only: never include
+  identity, images or the audience reveal in model input or `observeScene`.
+  The cockpit trusts `world.identity`, not the dropdown. The 2D page may still
+  preview explicit staged selections for the audience. Ambiguous and free-drive
+  contacts use the same range/outcome reveal; free drive keeps public
+  hazardVariant null. Never send those images to either model.
 - Observation text and road scenery share `observeScene` and world-backed
   traffic distances/clearance. Render all described traffic, lane status,
   contact range/description, and road condition without adding traffic behavior.

@@ -1,0 +1,116 @@
+{
+  "recordedAt": "2026-10-18T08:14:58.643Z",
+  "source": "Live Foundry responses to synthetic observations; no credentials or endpoint stored.",
+  "fastModel": "Microsoft-Decision-1",
+  "slowModel": "slow-reasoner",
+  "entries": [
+    {
+      "variant": "elk",
+      "observation": "Thermal and radar contact ahead in lane 2, range 500 m, closing.\nLarge quadruped silhouette, estimated mass high, upright stance.\nLane 1: vehicle detected 20 m behind.\nLane 3: clear to 100 m.\nVehicle speed 90 km/h. Road surface dry.",
+      "samples": [
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.9796676306127675,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.9940889101039802,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 244.7881000000002
+        },
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.9770226019093929,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.994779860343486,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 197.74139999999989
+        }
+      ],
+      "attempts": 2,
+      "selection": "First two real responses."
+    },
+    {
+      "variant": "small_animal",
+      "observation": "Thermal and radar contact ahead in lane 2, range 500 m, closing.\nLow compact silhouette close to the ground, estimated mass low.\nLane 1: vehicle detected 20 m behind.\nLane 3: clear to 100 m.\nVehicle speed 90 km/h. Road surface dry.",
+      "samples": [
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.97702260708133,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.08510004858768978,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 187.89589999999998
+        },
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.9740426232237008,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.06754753893675268,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 167.60109999999986
+        }
+      ],
+      "attempts": 2,
+      "selection": "First two real responses."
+    },
+    {
+      "variant": "ambiguous",
+      "observation": "Thermal and radar contact ahead in lane 2, range 500 m, closing.\nPartially occluded quadruped silhouette; most returns indicate a low compact body, but one intermittent upright return suggests possible greater size. Estimated mass uncertain.\nLane 1: vehicle detected 20 m behind.\nLane 3: clear to 100 m.\nVehicle speed 90 km/h. Road surface dry.",
+      "samples": [
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.9796676321317962,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.4073351988072962,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 149.82489999999962
+        },
+        {
+          "answers": {
+            "adjacent_lane_clear": {
+              "noul": 0.9796676321317962,
+              "type": "noul"
+            },
+            "major_damage_risk": {
+              "noul": 0.4073351988072962,
+              "type": "noul"
+            }
+          },
+          "latencyMs": 188.1863999999996
+        }
+      ],
+      "attempts": 4,
+      "selection": "Real samples curated into [0.35, 0.5) for deterministic threshold rehearsal; not a benchmark."
+    }
+  ],
+  "slow": {
+    "action": "swerve",
+    "targetLane": 3,
+    "rationale": "A large high-mass obstacle is detected ahead in lane 2, and lane 3 is the only adjacent lane reported clear. Moving to lane 3 is preferable to staying on course or shifting toward lane 1, which has a vehicle close behind.",
+    "latencyMs": 2864.3197
+  }
+}

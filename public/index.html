@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Fast / Slow - Decisions under a moving clock</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 1400px; margin: 1.5rem auto; padding: 0 1.5rem; font-size: 20px; line-height: 1.5; }
+    h1 { font-size: clamp(2.5rem, 5vw, 4rem); letter-spacing: -0.055em; line-height: 1; margin: 0 0 1rem; }
+    h1 span { color: var(--cp-accent); }
+    h2 { margin: 0 0 0.6rem; font-size: 1.4rem; }
+    p { margin: 0.7rem 0; }
+    .card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 1.4rem; margin-top: 1.2rem; min-width: 0; }
+    .muted { color: var(--cp-text-soft); font-size: 1rem; }
+    .controls, .stats, .mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+    .controls { justify-content: space-between; }
+    .mode-row { gap: 0.5rem; margin: 1rem 0; }
+    .stats { justify-content: space-between; margin-bottom: 0.8rem; }
+    label { display: grid; gap: 0.3rem; }
+    button, select, input[type=number] { font: inherit; color: inherit; background: var(--cp-surface-soft); border: 1px solid #777; border-radius: 0.625rem; padding: 0.5rem 0.8rem; }
+    input[type=number] { width: 7rem; max-width: 100%; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.primary, button[aria-pressed=true] { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    input[type=range] { accent-color: var(--cp-accent); width: min(100%, 260px); }
+    .badge { display: inline-block; border: 1px solid #777; border-radius: 0.625rem; padding: 0.3rem 0.7rem; font-size: 1rem; margin-right: 0.4rem; }
+    .connected, .allowed { color: var(--cp-success); }
+    .warning { color: var(--cp-warning); }
+    .refused, #error, #fast-error, #advice-error { color: var(--cp-danger); }
+    #error:empty, #fast-error:empty, #advice-error:empty { display: none; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.2rem; }
+    svg { width: 100%; max-height: 450px; display: block; margin: auto; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 1rem/1.6 ui-monospace, monospace; }
+    summary { cursor: pointer; }
+    .bar { height: 24px; border-radius: 4px; background: #494747; position: relative; margin: 0.5rem 0 1rem; }
+    .fill { height: 100%; background: var(--cp-accent); border-radius: 4px; width: 0; }
+    #clear-fill { background: var(--cp-success); }
+    #threshold-marker { position: absolute; left: 35%; top: -5px; bottom: -5px; width: 3px; background: white; transform: translateX(-50%); }
+    .number { font-variant-numeric: tabular-nums; }
+    #misses { font-size: 2rem; color: var(--cp-warning); }
+    #advice-title { font-size: 1.7rem; font-weight: 700; }
+    #advice-reasons { color: var(--cp-danger); }
+    #advice-application { font-weight: 600; }
+    #tick-log, #gate-log { max-height: 260px; overflow: auto; padding-left: 1.5rem; font: 1rem/1.6 ui-monospace, monospace; overflow-wrap: anywhere; }
+    #gate-log p { margin: 0.4rem 0; }
+    #gate-log li { margin-bottom: 1rem; }
+    #tick-log .supersession { color: var(--cp-success); background: var(--cp-accent-soft); border-left: 4px solid var(--cp-success); padding: 0.5rem; font-weight: 700; }
+    .teach { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; color: var(--cp-text-soft); }
+    @media (max-width: 800px) { .layout { grid-template-columns: 1fr; gap: 0; } body { margin: 1rem auto; padding: 0 1rem; } .controls { justify-content: flex-start; } }
+  </style>
+</head>
+<body>
+  <h1>Fast <span>/</span> Slow</h1>
+  <div class="teach"><span>The world does not wait.</span><span>Advice expires.</span><span>Agreement is not authority.</span></div>
+  <div class="mode-row">
+    <span id="connection" class="badge" role="status">Connecting...</span>
+    <span id="backend" class="badge"></span><span id="timing" class="badge"></span>
+  </div>
+  <section class="card" aria-label="World controls">
+    <div class="mode-row" role="group" aria-label="Execution mode">
+      <button data-mode="fast_only" aria-pressed="false">Fast only</button>
+      <button data-mode="blocking" aria-pressed="false">Blocking</button>
+      <button data-mode="async_gated" aria-pressed="true">Async + gated</button>
+      <span class="muted">Reset before changing mode or hazard.</span>
+    </div>
+    <div class="controls">
+      <label>Speed <input id="speed" type="range" min="50" max="130" value="90" aria-label="Selected speed"><span id="speed-value">90 km/h selected</span></label>
+      <label>Hazard <select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
+      <div class="mode-row"><button id="start" class="primary">Start</button><button id="reset">Reset</button></div>
+    </div>
+  </section>
+  <p id="error" role="alert"></p>
+  <div class="layout">
+    <section class="card" aria-label="World">
+      <div class="stats"><strong id="tick">Tick 0</strong><span id="range">500 m</span><span id="outcome">running</span></div>
+      <svg viewBox="0 0 540 450" role="img" aria-label="Three-lane road with ego car, observed traffic, lane clearance, and selected hazard">
+        <defs>
+          <g id="traffic-car"><rect x="-20" y="-30" width="40" height="60" rx="9" fill="#93c5fd"/><rect x="-14" y="-19" width="28" height="15" rx="3" fill="#292929"/><rect x="-14" y="12" width="28" height="10" rx="3" fill="#292929"/></g>
+          <clipPath id="contact-image-clip"><rect x="-36" y="-36" width="72" height="72" rx="10"/></clipPath>
+        </defs>
+        <rect x="25" y="0" width="490" height="450" rx="18" fill="#353332" />
+        <g fill="#dedede" text-anchor="middle" font-size="14" font-weight="700">
+          <text x="110" y="20">LANE 1</text><text x="270" y="20">LANE 2</text><text x="430" y="20">LANE 3</text>
+          <text id="lane-1-status" x="110" y="42"></text><text id="lane-2-status" x="270" y="42"></text><text id="lane-3-status" x="430" y="42"></text>
+        </g>
+        <g fill="#4ade80" text-anchor="middle" font-size="14">
+          <g id="lane-1-clearance" visibility="hidden"><rect id="lane-1-clear-zone" x="50" width="120" y="350" height="0" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80" stroke-dasharray="5 4"/><text id="lane-1-clear-distance" x="110"></text></g>
+          <g id="lane-2-clearance" visibility="hidden"><rect id="lane-2-clear-zone" x="210" width="120" y="350" height="0" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80" stroke-dasharray="5 4"/><text id="lane-2-clear-distance" x="270"></text></g>
+          <g id="lane-3-clearance" visibility="hidden"><rect id="lane-3-clear-zone" x="370" width="120" y="350" height="0" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80" stroke-dasharray="5 4"/><text id="lane-3-clear-distance" x="430"></text></g>
+        </g>
+        <g id="road-lines" stroke="#777" stroke-width="3" stroke-dasharray="24 20"><path d="M190 0V450"/><path d="M350 0V450"/></g>
+        <path d="M35 350H505" stroke="#919191" stroke-dasharray="4 6" opacity="0.5"/>
+        <g fill="#93c5fd" text-anchor="middle" font-size="14">
+          <g id="vehicle-1" visibility="hidden"><use href="#traffic-car"/><text id="vehicle-1-distance" y="44"></text></g>
+          <g id="vehicle-2" visibility="hidden"><use href="#traffic-car"/><text id="vehicle-2-distance" y="44"></text></g>
+          <g id="vehicle-3" visibility="hidden"><use href="#traffic-car"/><text id="vehicle-3-distance" y="44"></text></g>
+        </g>
+        <g id="car" transform="translate(270,350)">
+          <g id="supersession-marker" visibility="hidden"><circle r="54" fill="none" stroke="#4ade80" stroke-width="4"/><text id="supersession-marker-label" y="-65" text-anchor="middle" fill="#4ade80" font-size="14" font-weight="700"></text></g>
+          <rect x="-24" y="-40" width="48" height="80" rx="12" fill="#fd8ea1"/><rect x="-17" y="-24" width="34" height="20" rx="4" fill="#292929"/><rect x="-17" y="15" width="34" height="14" rx="4" fill="#292929"/>
+        </g>
+        <g id="contact" transform="translate(270,70)">
+          <g id="contact-unidentified"><circle r="24" fill="#78613d" stroke="#fbbf24" stroke-width="2"/><text id="contact-label" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="16">?</text></g>
+          <image id="contact-image" x="-36" y="-36" width="72" height="72" preserveAspectRatio="xMidYMid meet" clip-path="url(#contact-image-clip)" visibility="hidden" role="img"/>
+          <text id="contact-distance" y="54" text-anchor="middle" fill="#fbbf24" font-size="14"></text>
+        </g>
+        <text id="road-surface" x="270" y="438" text-anchor="middle" fill="#b0b0b0" font-size="14"></text>
+      </svg>
+      <div class="stats"><span id="actual-speed">90.0 km/h actual</span><span id="car-lane">Car lane 2</span><span class="muted">Animal images are audience-only; models receive sensor text.</span></div>
+      <p class="muted">Pink: ego car. Blue: observed traffic. Distances share one scale; vehicle icons are not to scale. Traffic is co-moving scenery, so the stated gap stays fixed as the road moves.</p>
+      <p id="contact-description" class="muted"></p>
+      <details id="model-view"><summary>What the models see</summary><p id="observation-stamp" class="muted"></p><pre id="observation"></pre></details>
+      <p id="physics" class="muted"></p>
+    </section>
+    <section class="card" aria-label="Fast layer">
+      <h2>Fast decisions</h2>
+      <div class="stats"><strong id="model-name"></strong><span id="fast-status">idle</span><span id="latency" class="number">-- ms</span></div>
+      <p id="fast-stamp" class="muted">No accepted response yet</p>
+      <div class="stats"><label id="damage-label">Major damage risk</label><strong id="damage-value" class="number">unknown</strong></div>
+      <div id="damage-bar" class="bar" role="progressbar" aria-labelledby="damage-label" aria-valuemin="0" aria-valuemax="1"><div id="damage-fill" class="fill"></div><div id="threshold-marker" title="Braking threshold"></div></div>
+      <div class="stats"><label id="clear-label">Adjacent lane clear</label><strong id="clear-value" class="number">unknown</strong></div>
+      <div id="clear-bar" class="bar" role="progressbar" aria-labelledby="clear-label" aria-valuemin="0" aria-valuemax="1"><div id="clear-fill" class="fill"></div></div>
+      <label>Damage threshold: <strong id="threshold-value">0.35</strong><input id="threshold" type="range" min="0" max="1" step="0.01" value="0.35" aria-label="Damage threshold"></label>
+      <p class="muted">A missed major hazard costs more than unnecessary braking: the threshold is deliberately below 0.5. Refusal or unknown also means brake.</p>
+      <p class="muted">Braking is revisable: a later gate-allowed action can release it. New same-tick fast actions win conflicts; refused advice changes nothing.</p>
+      <div class="stats"><span>Missed deadlines</span><strong id="misses" class="number">0</strong></div>
+      <p id="deadline-marker" role="status" class="muted">No missed deadlines</p>
+      <p id="fast-error" role="alert"></p>
+    </section>
+  </div>
+  <div class="layout">
+    <section class="card" aria-label="Slow advice">
+      <div class="stats"><h2>Slow advice</h2><strong id="advice-age" class="allowed">No observation yet</strong></div>
+      <p id="slow-model" class="muted"></p>
+      <p class="muted">Reassesses while the encounter runs, one request at a time. Age restarts only when a fresh observation is sent. While reassessing, the last result is labelled Previous assessment.</p>
+      <p id="advice-title">Waiting for start</p><p id="rationale"></p>
+      <p id="advice-stamps" class="muted"></p>
+      <p id="advice-application" role="status"></p><p id="advice-reasons"></p>
+      <p id="advice-error" role="alert"></p>
+      <details>
+        <summary>Show slow advice changing the lane</summary>
+        <p class="muted">For recorded replay: Reset, choose Async + gated and Elk, keep damage threshold 0.35, and use a fresh-enough staleness limit (6 for the default five-tick advice). Start at 60 km/h: the first slow advice releases the earlier fast brake and begins a three-tick move to lane 3. Reset and change only speed to 90 km/h: the first advice is prohibited and braking continues. A later fresh assessment can permit the turn once actual speed drops below the limit. Limit 3 keeps the five-tick replay stale on every assessment.</p>
+        <p class="muted">Replay reuses a captured elk recommendation on each assessment; it does not adapt to the new observation, so a lane-3 target after reaching lane 3 is reported as invalid. Live timing and recommendations vary. Both gate checkpoints use current state. Raising the age limit never bypasses the independent speed rule. Later fast actions may brake again without cancelling a lane change already underway.</p>
+      </details>
+    </section>
+    <section class="card" aria-label="Deterministic gate">
+      <h2>Deterministic gate</h2>
+      <label>Staleness limit (ticks)<input id="staleness" type="number" min="0" max="1000" step="1" value="3" required aria-describedby="staleness-help staleness-choice"></label>
+      <p id="staleness-help" class="muted"></p>
+      <p id="staleness-choice" class="muted"><strong>Which value?</strong> Use <strong>3</strong> to demonstrate strict rejection of late advice. Use <strong>6</strong> for the default five-tick recorded advice: it leaves one tick of headroom. Larger limits accept older observations. For live reasoning, check the displayed observation age; 6 is not a guarantee of acceptance.</p>
+      <p id="gate-rules" class="muted"></p>
+      <p id="action-status" role="status">No action proposed.</p>
+      <ol id="gate-log"></ol>
+    </section>
+  </div>
+  <section class="card"><h2>Tick log</h2><ol id="tick-log" aria-live="off"></ol></section>
+  <p class="muted">Toy world, not a driving system. No real-time or vehicle-safety guarantees.</p>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

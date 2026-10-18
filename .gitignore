@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.playwright-mcp/
+.env
+.env.*
+!.env.example
+*.log

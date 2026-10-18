@@ -1,0 +1,274 @@
+{
+  "measuredAt": "2026-10-18T08:00:59.526Z",
+  "network": "current local connection; presentation network not verified",
+  "requests": 20,
+  "failures": 0,
+  "model": "Microsoft-Decision-1",
+  "deployment": "fast-decider",
+  "p50Ms": 141.79119999999966,
+  "p95Ms": 200.1619999999998,
+  "tickMs": 400,
+  "tickBudgetMs": 350,
+  "samples": [
+    {
+      "latencyMs": 433.1631000000002,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.979667626937238,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9953904146007918,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 200.1619999999998,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226133827042,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9940889162966483,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 132.8770000000004,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676312206037,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798558772368,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 111.72699999999986,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.977022616598104,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9953904159192695,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 147.86549999999988,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676306127675,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9940889101039802,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 143.48840000000018,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226055504181,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9953904119489957,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 114.79219999999987,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9820137693916511,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798586078,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 164.72550000000047,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676255844583,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9940889174563688,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 159.6176999999998,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676282797684,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9953904119114598,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 157.25870000000032,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676336599469,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9933071285234613,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 141.79119999999966,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226015053652,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798593201991,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 174.7467000000006,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226019093929,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.994779860343486,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 150.01569999999992,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226015053652,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798593201991,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 126.84029999999984,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226015053652,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798593201991,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 118.57020000000011,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226066921678,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9924227409884795,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 116.51659999999993,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226139991096,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.994088914383803,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 135.6849000000002,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226133827042,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9940889162966483,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 148.42169999999987,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9796676336599469,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9933071285234613,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 136.9402999999993,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.9770226015053652,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9947798593201991,
+          "type": "noul"
+        }
+      }
+    },
+    {
+      "latencyMs": 115.32750000000033,
+      "answers": {
+        "adjacent_lane_clear": {
+          "noul": 0.982013766510477,
+          "type": "noul"
+        },
+        "major_damage_risk": {
+          "noul": 0.9953904134133363,
+          "type": "noul"
+        }
+      }
+    }
+  ]
+}

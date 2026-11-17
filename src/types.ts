@@ -1,10 +1,12 @@
 export type Lane = 1 | 2 | 3;
 export type HazardVariant = 'elk' | 'small_animal' | 'ambiguous';
 export type Outcome = 'running' | 'braked' | 'swerved' | 'continued' | 'collision';
-export type Action = 'swerve' | 'brake' | 'continue';
+export type Action = 'swerve' | 'brake' | 'slow_down' | 'continue';
 export type Mode = 'fast_only' | 'blocking' | 'async_gated';
 export type SwerveTier = 'normal grip' | 'frost risk' | 'ice risk';
 export type RunKind = 'staged' | 'free';
+export type Encounter = 'standard' | 'rear_threat';
+export type CollisionCause = 'front_contact' | 'rear_vehicle' | 'front_vehicle' | 'lane_vehicle';
 
 export interface DriveScore {
   hazardsFaced: number;
@@ -23,7 +25,7 @@ export interface DriveView {
   phase: 'idle' | 'episode' | 'dwell' | 'gap' | 'collision' | 'finished';
   episodeId: number | null;
   seed: number;
-  durationS: number;
+  durationS: number; // 0 runs until Stop, excluding collision pauses.
   elapsedS: number;
   phaseRemainingS: number;
   finishReason: 'duration' | 'stopped' | null;
@@ -37,7 +39,7 @@ export interface FastResult {
 }
 
 export interface SlowResult {
-  action: Action;
+  action: Exclude<Action, 'slow_down'>;
   targetLane?: Lane;
   rationale: string;
   latencyMs: number;
@@ -91,6 +93,7 @@ export interface LaneChange {
 }
 
 export interface WorldState {
+  encounter: Encounter;
   tick: number;
   speedKmh: number;
   selectedSpeedKmh: number;
@@ -104,11 +107,21 @@ export interface WorldState {
   adjacentVehicleDistanceBehindM: number;
   clearLaneDistanceM: number;
   roadSurface: 'dry';
+  followingVehicle: {
+    lane: Lane;
+    distanceBehindM: number;
+    speedKmh: number;
+    reactionRemainingS: number | null;
+  } | null;
+  collisionCause: CollisionCause | null;
   braking: boolean;
+  slowing: boolean;
   outcome: Outcome;
 }
 
 export interface WorldView {
+  encounter: Encounter;
+  collisionCause: CollisionCause | null;
   tick: number;
   speedKmh: number;
   selectedSpeedKmh: number;
@@ -121,6 +134,7 @@ export interface WorldView {
   distanceM: number;
   identity: WorldState['hazard']['kind'] | null;
   braking: boolean;
+  slowing: boolean;
   outcome: Outcome;
 }
 
@@ -138,9 +152,16 @@ export interface SceneView {
   contact: { lane: Lane; rangeM: number } | null;
   contactDescription: string;
   roadSurface: WorldState['roadSurface'];
+  followingVehicle: {
+    lane: Lane;
+    distanceBehindM: number;
+    speedKmh: number;
+    closingSpeedKmh: number;
+  } | null;
   lanes: {
     lane: Lane;
     vehicleBehindM: number | null;
+    vehicleAheadM?: number;
     clearAheadM: number | null;
   }[];
 }
@@ -163,6 +184,8 @@ export interface Snapshot {
     tickBudgetMs: number;
     initialHazardDistanceM: number;
     brakeDecelMps2: number;
+    gentleDecelMps2: number;
+    gentleSpeedKmh: number;
     accelMps2: number;
     stalenessLimitTicks: number;
     swerveSpeedLimit: number;
@@ -179,8 +202,9 @@ export interface Snapshot {
     error: string | null;
   };
   advice: {
-    status: 'idle' | 'thinking' | 'ready' | 'error';
+    status: 'idle' | 'thinking' | 'ready' | 'error' | 'cancelled';
     observedAtTick: number | null;
+    cancellation: { atTick: number; reason: 'collision' | 'episode_ended' | 'stopped' | 'duration' } | null;
     data: Advice | null;
     error: string | null;
     gate: GateDecision | null;

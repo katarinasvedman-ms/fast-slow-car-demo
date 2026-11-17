@@ -153,4 +153,22 @@ test('cockpit renders full advice, independent refusal details and both tuning i
   assert.equal(nodes.get('thermal-contact').hidden, true);
   assert.equal(nodes.get('identity-note').textContent, 'Audience view / not model input');
   assert.equal(nodes.get('impact-image').hidden, true);
+
+  state.advice = {
+    status: 'cancelled', observedAtTick: 1, data: null, error: null, gate: null, application: null,
+    cancellation: { atTick: 9, reason: 'collision' },
+  };
+  state.drive.kind = 'free';
+  state.drive.phase = 'collision';
+  state.world.outcome = 'collision';
+  let thinking;
+  nodes.get('thinking-ring').classList.toggle = (_name, enabled) => { thinking = enabled; };
+  renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('advice-action').textContent, 'CANCELLED AT COLLISION');
+  assert.equal(nodes.get('advice-status').textContent, 'CANCELLED AT COLLISION');
+  assert.equal(nodes.get('advice-history').textContent, 'Last assessment / no answer received');
+  assert.equal(nodes.get('advice-stamp-visible').textContent, 'Observed #1 / cancelled #9 / waited 8 ticks (3.2 s)');
+  assert.equal(nodes.get('freshness-label-visible').textContent, 'OBSERVATION AGE AT CANCELLATION 8 / 3 TICKS');
+  assert.equal(nodes.get('gate-verdict').textContent, 'WAITING');
+  assert.equal(thinking, false);
 });

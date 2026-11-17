@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   if (!args.includes('--allow-paid-requests')) {
     throw new Error('Pass --allow-paid-requests to authorize 20 live Decision-1 requests.');
   }
-  const observation = buildObservation(createWorld(config), 'elk');
+  const observation = buildObservation(createWorld(config, 90), 'elk');
   const samples: { latencyMs: number; answers: unknown }[] = [];
   let failures = 0;
   console.log(`Decision-1 local timing calibration / ${network}; 20 requests, no retries.`);

@@ -8,6 +8,92 @@ dependency that is not named below.
 
 These decisions override conflicting examples below:
 
+- Known damage risk below the selected threshold now proposes fast `slow_down`
+  while the sensor contact is in the occupied path, regardless of adjacent-lane
+  probability when known. Decelerate gently toward GENTLE_SPEED_KMH (default
+  50 km/h, capped at selected speed), without stopping or increasing an already
+  lower actual speed. GENTLE_DECEL_MPS2 defaults to 3 m/s², capped at the configured
+  emergency BRAKE_DECEL_MPS2 so the gentle setting is never stronger. The local
+  9 m/s² rehearsal therefore uses 3 m/s² gentle slowing. High risk, unknown,
+  failure and missed deadlines keep the existing emergency brake default;
+  clear-path fast actions continue. Show gentle slowing distinctly, preserve
+  typed action/supersession records, and keep it revisable by later actions.
+  Emergency brake replaces gentle slowing; allowed swerve/continue releases it
+  without jumping speed or cancelling an ongoing turn. Following traffic reacts
+  to gentle slowing too. Release the slowdown once clear, with physical recovery
+  only after the turn completes. No fast swerves, new gate rules, model-input
+  identity leaks, artificial model delays, or recording changes.
+- Retain cancelled continuous-drive assessments instead of erasing their
+  observation. Show the cancellation reason/tick, original observation tick,
+  and wait duration in both views; freeze age at cancellation and stop the
+  thinking indicator. Never invent a recommendation or gate refusal. Keep
+  rejecting late callbacks; a new encounter replaces history and Reset clears it.
+- Slow advice should opportunistically avoid low-mass animal contacts when an
+  observed clear adjacent route is safer, not treat low impact alone as a reason
+  to strike them. Occupant/road-user safety takes priority: with no safer observed
+  route, continue for a low-mass contact rather than cause a worse crash; brake
+  for potentially large/uncertain contacts with no safer route. Keep the known
+  low-risk fast action as gentle slowing, not emergency braking or a swerve.
+  Both existing gate rules, same-tick
+  priority, physical turn duration, deadlines and unknown/error fallbacks stay
+  unchanged. Advice must arrive and physically clear the path in time; never
+  manufacture a successful small-animal avoidance or change the recordings.
+- Keep **Continuous rear threats (live)** and the staged presets; remove the
+  separate Free drive button and Standard/Rear traffic selector in both views.
+  The continuous Run option selects rear threats; retain the internal episode
+  engine and standard 35-65 m branch without exposing a competing UI option.
+  Start one physical follower at FOLLOWING_VEHICLE_DISTANCE_M (80 m for this
+  rehearsal) before Start, including the initial quiet stretch. Preserve its
+  actual lane, signed relative distance, speed and reaction state through
+  passage, dwell, quiet stretches and new hazard spawns. Never clear, replace or
+  re-center it on the ego lane at episode boundaries. It may pass or fall behind,
+  even out of view; after braking to rest it remains stopped, not artificially
+  following or accelerating to restore its original gap. Skip conflicting seeded
+  static traffic in its lane. Continue traffic movement during a stopped dwell.
+  Traffic impacts in gaps also count once and pause; distinguish catching a
+  vehicle ahead from an animal impact. After a collision, Start preserves the
+  follower's lane/position; a directly impacted vehicle resumes from rest too.
+  Reset explicitly restages the initial follower. Keep the configured forward
+  range (80 m for this rehearsal) and seeded hazard types. Recover physically to selected speed
+  before spawning the next rear-threat episode. Duration 0 means until Stop;
+  keep finite durations available. A collision counts once and pauses for
+  inspection; Start resumes from rest without resetting the score. Preserve
+  episode cancellation/ownership, one reasoning request per Free-drive episode,
+  model-input boundaries and gate checks.
+  Preserve all staged presets and reject this new live-only preset in STUB.
+- Startup/highway speed and the Rear threat preset default to 110 km/h.
+  Reset preserves the selected speed. Keep the four original teaching presets
+  and existing calibration/capture scenarios explicitly at 90 km/h.
+- Add a live-only staged **Rear threat** preset alongside the four original
+  moments. Its forward range honors INITIAL_HAZARD_DISTANCE_M just like other
+  staged encounters (restart after environment edits), with a following vehicle in lane 2
+  initially FOLLOWING_VEHICLE_DISTANCE_M behind (default 80 m, environment-editable
+  with restart) at the selected speed. The follower reacts 1.6 s after
+  the first braking action, then brakes at 4.5 m/s². Its measured range/speed
+  and closing speed enter the shared sensor/road projection, not hidden reaction
+  parameters. Hard braking may avoid the animal yet allow a rear collision;
+  remaining stopped does not freeze approaching traffic. A three-tick turn must
+  physically clear the following vehicle's lane before impact. Keep the existing
+  two gate rules and same-tick priority. Use BRAKE_DECEL_MPS2=9 for this local
+  emergency-braking rehearsal, not a hard-coded physics override.
+  Reasoning may reaffirm braking, refuse/fail, or arrive too late; never force
+  a successful swerve. Show rear impacts distinctly, without an animal impact
+  cutout. Reject the new preset in STUB; preserve recordings, original staged
+  presets and Free drive's existing traffic behavior. Animal motion and
+  additional dynamic traffic remain deferred.
+- Sensor text explicitly identifies the ego lane and ongoing turn progress and
+  includes readings for all three lanes, including the occupied lane. A completed
+  turn must not make lane 3 appear unobserved. Distinguish traffic clearance from
+  the forward contact; keep hidden identity and temperature out of model input.
+- Live-only Free drive starts on an empty road and spawns one stationary hazard
+  after each seeded random quiet stretch (about 3 seconds by default), including
+  the first. Spawn 35-65 m ahead, independent of stopping distance: close
+  encounters may be unavoidable with gentle braking. Any animal struck in an
+  occupied lane, including a squirrel, is a collision regardless of predicted
+  major damage risk. Models learn of a contact only on its spawn tick; no model work
+  during quiet gaps/dwell. Preserve staged presets and recorded fixtures.
+  Moving animals and additional dynamic traffic beyond the optional following
+  vehicle remain deferred.
 - Use one fast model (Foundry `fast-decider`, Microsoft Decision-1) and one slow
   model (Foundry `slow-reasoner`, GPT-5.4). Remove the second fast provider and
   model-switching comparison. Local measurement calibrates the one fast model;

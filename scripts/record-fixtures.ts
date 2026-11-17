@@ -29,7 +29,7 @@ async function main(): Promise<void> {
       selection: variant === 'ambiguous' ? 'Real samples curated into [0.35, 0.5) for deterministic threshold rehearsal; not a benchmark.' : 'First two real responses.',
     });
   }
-  const observation = buildObservation(createWorld(config), 'elk');
+  const observation = buildObservation(createWorld(config, 90), 'elk');
   const slow = await models.slow.advise(observation, AbortSignal.timeout(30_000));
   console.log(`Slow: ${slow.action}, ${slow.latencyMs.toFixed(1)} ms; ${slow.rationale}`);
   await mkdir('fixtures', { recursive: true });

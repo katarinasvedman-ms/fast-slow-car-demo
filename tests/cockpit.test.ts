@@ -128,9 +128,30 @@ test('cockpit event tracking deduplicates gate results, distinguishes applicatio
   assert.deepEqual(tracker.update(next), []);
 });
 
+test('cancelled assessments retain their observation and freeze the wait age instead of implying no request', () => {
+  const value = snapshot();
+  value.world.tick = 20;
+  value.advice = {
+    ...value.advice, status: 'cancelled', observedAtTick: 5,
+    cancellation: { atTick: 13, reason: 'collision' },
+  };
+  assert.deepEqual(parseSnapshot(JSON.stringify(value)), value);
+  assert.equal(mapSnapshot(value).age, 8);
+  assert.equal(mapSnapshot(value).fresh, 'off');
+  assert.equal(mapSnapshot(value).permitted, 'off');
+  value.advice.cancellation = null;
+  assert.throws(() => parseSnapshot(JSON.stringify(value)), /Invalid cockpit state/);
+  value.advice.cancellation = { atTick: 4, reason: 'collision' };
+  assert.throws(() => parseSnapshot(JSON.stringify(value)), /Invalid cockpit state/);
+});
+
 test('cockpit rejects malformed snapshots instead of rendering success-shaped defaults', () => {
   const value = snapshot();
   assert.deepEqual(parseSnapshot(JSON.stringify(value)), value);
+  const gentle = structuredClone(value);
+  gentle.world.slowing = true;
+  gentle.gate = [{ ...record(), envelope: { ...record().envelope, action: 'slow_down', source: 'fast' }, decision: { allowed: true } }];
+  assert.deepEqual(parseSnapshot(JSON.stringify(gentle)), gentle);
   assert.throws(() => parseSnapshot('{"world":{}}'), /Invalid cockpit state/);
   value.advice.gate = { allowed: false, reasons: [{ reason: 'stale_advice', detail: 'Stale.' }] };
   const malformed = JSON.parse(JSON.stringify(value));
@@ -140,6 +161,9 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
     (state: Snapshot) => { state.drive.episodeId = -1; },
     (state: Snapshot) => { state.drive.score.collisions = NaN; },
     (state: Snapshot) => { state.scene.contact = { lane: 2, rangeM: NaN }; },
+    (state: Snapshot) => {
+      state.scene.followingVehicle = { lane: 2, distanceBehindM: 10, speedKmh: NaN, closingSpeedKmh: 20 };
+    },
   ]) {
     const invalid = structuredClone(value);
     mutate(invalid);
@@ -183,6 +207,7 @@ test('scenario labels wait for matching authoritative settings and return to Cus
   selection.choose('allowed-swerve');
   assert.equal(selection.update(state), 'custom');
   state.settings.stalenessLimitTicks = 6;
+  state.world.selectedSpeedKmh = 90;
   assert.equal(selection.update(state), 'allowed-swerve');
   state.world.speedKmh = 30;
   state.world.tick = 20;
@@ -193,6 +218,28 @@ test('scenario labels wait for matching authoritative settings and return to Cus
   selection.custom();
   state.world.selectedSpeedKmh = 90;
   assert.equal(selection.update(state), 'custom');
+});
+
+test('continuous preset matches episode snapshots without a selected hazard and respects duration edits', () => {
+  const selection = new ScenarioSelection();
+  const simulation = new Simulation(loadConfig({}), fakeModels());
+  simulation.setRunKind('free');
+  simulation.setEncounter('rear_threat');
+  simulation.setStalenessLimit(10);
+  selection.choose('continuous-rear-threat');
+  assert.equal(selection.update(simulation.snapshot()), 'custom');
+  simulation.setDriveDuration(0);
+  assert.equal(selection.update(simulation.snapshot()), 'continuous-rear-threat');
+  const episode = simulation.snapshot();
+  episode.drive.phase = 'episode';
+  episode.drive.episodeId = 2;
+  episode.world.carLane = 3;
+  episode.world.speedKmh = 40;
+  assert.equal(episode.hazardVariant, null);
+  assert.equal(selection.update(episode), 'continuous-rear-threat');
+  simulation.setDriveDuration(120);
+  assert.equal(selection.update(simulation.snapshot()), 'custom');
+  simulation.dispose();
 });
 
 test('freshness age and editable limit share a truthful tick scale, including zero and large limits', () => {

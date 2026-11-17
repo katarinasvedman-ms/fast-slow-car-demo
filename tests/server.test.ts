@@ -6,6 +6,7 @@ import { Simulation } from '../src/simulation.js';
 import type { Snapshot } from '../src/types.js';
 import { fakeModels } from './helpers.js';
 import { ServerResponse } from 'node:http';
+import { scenarioCommands } from '../client/cockpit/controls.js';
 
 test('local HTTP controls and SSE publish the moving world and both gate records', async (context) => {
   const simulation = new Simulation(loadConfig({ TICK_MS: '50', TICK_BUDGET_MS: '40' }), fakeModels());
@@ -142,10 +143,48 @@ test('SSE backpressure retains only the latest snapshot and drains without disco
   await reader.cancel();
 });
 
+test('the continuous rear-threat preset configures live HTTP controls without starting requests', async (context) => {
+  let calls = 0;
+  const simulation = new Simulation(loadConfig({ INITIAL_HAZARD_DISTANCE_M: '80' }), fakeModels({
+    fast: { name: 'Mock unused', async decide() { calls++; throw new Error('Must not call before Start.'); } },
+  }));
+  const server = createApp(simulation).listen(0, '127.0.0.1');
+  context.after(() => { simulation.dispose(); server.close(); server.closeAllConnections(); });
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const origin = `http://127.0.0.1:${address.port}`;
+  const post = (body: unknown) => fetch(`${origin}/api/control`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  for (const command of scenarioCommands('continuous-rear-threat')) {
+    const response = await post(command);
+    assert.equal(response.status, 200, JSON.stringify(command));
+  }
+  const ready = simulation.snapshot();
+  assert.equal(ready.started, false);
+  assert.equal(ready.drive.kind, 'free');
+  assert.equal(ready.drive.durationS, 0);
+  assert.equal(ready.world.encounter, 'rear_threat');
+  assert.equal(ready.world.selectedSpeedKmh, 110);
+  assert.equal(ready.settings.stalenessLimitTicks, 10);
+  assert.equal(ready.scene.contact, null);
+  assert.equal(ready.scene.followingVehicle?.distanceBehindM, 80);
+  assert.equal(calls, 0);
+  assert.equal((await post({ command: 'start' })).status, 200);
+  assert.equal((await post({ command: 'encounter', value: 'standard' })).status, 409);
+  assert.equal((await post({ command: 'stop' })).status, 200);
+  assert.equal(simulation.snapshot().drive.finishReason, 'stopped');
+  assert.equal((await post({ command: 'reset' })).status, 200);
+  assert.equal(simulation.snapshot().drive.durationS, 0);
+  assert.equal(simulation.snapshot().world.encounter, 'rear_threat');
+});
+
 test('free-drive HTTP controls validate duration, reject STUB, resume collision and finalize Stop', async (context) => {
   for (const stub of [true, false]) {
     const simulation = new Simulation(loadConfig({
-      STUB: stub ? '1' : '0', TICK_MS: '50', TICK_BUDGET_MS: '40', INITIAL_HAZARD_DISTANCE_M: '1',
+      STUB: stub ? '1' : '0', TICK_MS: '50', TICK_BUDGET_MS: '40',
+      DRIVE_GAP_S: '0', DRIVE_SEED: '1',
     }), fakeModels());
     simulation.setMode('fast_only');
     const server = createApp(simulation).listen(0, '127.0.0.1');
@@ -157,8 +196,41 @@ test('free-drive HTTP controls validate duration, reject STUB, resume collision 
     const post = (command: string, value?: unknown) => fetch(`${origin}/api/control`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command, value }),
     });
+
+    test('rear-threat controls reject recordings, require reset, and restore the original staged encounter', async (context) => {
+      for (const stub of [true, false]) {
+        const simulation = new Simulation(loadConfig({ STUB: stub ? '1' : '0' }), fakeModels());
+        const server = createApp(simulation).listen(0, '127.0.0.1');
+        context.after(() => { simulation.dispose(); server.close(); server.closeAllConnections(); });
+        await new Promise<void>((resolve) => server.once('listening', resolve));
+        const address = server.address();
+        assert.ok(address && typeof address !== 'string');
+        const post = (value: string) => fetch(`http://127.0.0.1:${address.port}/api/control`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: 'encounter', value }),
+        });
+        assert.equal((await post('invalid')).status, 400);
+        assert.equal((await post('rear_threat')).status, stub ? 409 : 200);
+        if (!stub) {
+          assert.equal(simulation.snapshot().scene.followingVehicle?.lane, 2);
+          simulation.start();
+          assert.equal((await post('standard')).status, 409);
+          simulation.reset();
+          assert.equal(simulation.snapshot().world.encounter, 'rear_threat');
+          assert.equal((await post('standard')).status, 200);
+          assert.equal(simulation.snapshot().scene.followingVehicle, null);
+          assert.equal(simulation.snapshot().world.distanceM, 500);
+          simulation.setRunKind('free');
+          assert.equal((await post('rear_threat')).status, 200);
+          assert.equal(simulation.snapshot().world.encounter, 'rear_threat');
+          assert.equal(simulation.snapshot().scene.followingVehicle?.distanceBehindM, 80);
+        }
+      }
+    });
     assert.equal((await fetch(`${origin}/drive.js`)).status, 200);
-    for (const invalid of [0, 3601, 1.5, '120', null]) assert.equal((await post('duration', invalid)).status, 400);
+    for (const invalid of [-1, 3601, 1.5, '120', null]) assert.equal((await post('duration', invalid)).status, 400);
+    assert.equal((await post('duration', 0)).status, 200);
+    assert.equal(simulation.snapshot().drive.durationS, 0);
     assert.equal((await post('duration', 30)).status, 200);
     assert.equal((await post('stop')).status, 409);
     assert.equal((await post('run', 'free')).status, stub ? 409 : 200);
@@ -172,6 +244,10 @@ test('free-drive HTTP controls validate duration, reject STUB, resume collision 
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       assert.equal(simulation.snapshot().drive.phase, 'collision');
+      assert.equal(simulation.snapshot().world.identity, 'small_animal');
+      assert.equal(simulation.snapshot().drive.score.collisions, 1);
+      assert.equal(simulation.snapshot().drive.score.avoidedByBraking, 0);
+      assert.equal(simulation.snapshot().drive.score.avoidedBySwerving, 0);
       assert.equal((await post('run', 'staged')).status, 409);
       assert.equal((await post('start')).status, 200);
       assert.equal(simulation.snapshot().drive.phase, 'gap');

@@ -1,11 +1,11 @@
 import type { Config } from './config.js';
 import { buildObservation, observeScene, senseContact } from './observation.js';
-import { emptyDrive, nextHazard } from './drive.js';
+import { emptyDrive, nextGap, nextHazard, nextSpawnDistance } from './drive.js';
 import { evaluateGate } from './gate.js';
 import { fastAction, hazardInPath, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
 import type { ModelServices } from './models/live.js';
 import type {
-  ActionEnvelope, AppliedAction, GateDecision, GateRecord, HazardVariant, Mode,
+  ActionEnvelope, AppliedAction, Encounter, GateDecision, GateRecord, HazardVariant, Mode,
   DriveView, RunKind, SlowResult, Snapshot, TickEntry, WorldState,
 } from './types.js';
 import { advanceWorld, applyAction, createWorld, publicWorld, setWorldSpeed } from './world.js';
@@ -70,11 +70,16 @@ export class Simulation {
       drive: {
         ...structuredClone(this.drive),
         phaseRemainingS: this.drive.phase === 'gap' || this.drive.phase === 'dwell'
-          ? Math.max(0, this.phaseUntilTick - this.world.tick) * this.config.tickMs / 1000 : 0,
+          ? Math.max(
+            Math.max(0, this.phaseUntilTick - this.world.tick) * this.config.tickMs / 1000,
+            this.drive.phase === 'gap' ? this.recoverySeconds() : 0,
+          ) : 0,
       },
       world: publicWorld(this.world),
       hazardVariant: this.drive.kind === 'free' ? null : this.hazardVariant,
-      observation: this.capturedObservation?.text ?? buildObservation(this.world, this.hazardVariant),
+      observation: this.capturedObservation?.text ?? (this.world.hazardActive
+        ? buildObservation(this.world, this.hazardVariant)
+        : 'No model observation captured. Waiting for a sensor contact.'),
       observationTick: this.capturedObservation?.tick ?? null,
       scene: observeScene(this.world, this.hazardVariant),
       settings: {
@@ -82,6 +87,8 @@ export class Simulation {
         tickBudgetMs: this.config.tickBudgetMs,
         initialHazardDistanceM: this.config.initialHazardDistanceM,
         brakeDecelMps2: this.config.brakeDecelMps2,
+        gentleDecelMps2: this.config.gentleDecelMps2,
+        gentleSpeedKmh: this.config.gentleSpeedKmh,
         accelMps2: this.config.accelMps2,
         stalenessLimitTicks: this.stalenessLimitTicks,
         swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
@@ -105,10 +112,18 @@ export class Simulation {
     if (this.drive.kind === 'free') {
       if (this.drive.phase === 'finished') return;
       if (this.drive.phase === 'collision') {
-        this.world = { ...this.world, speedKmh: 0, braking: false, laneChange: null, outcome: 'running', hazardActive: false };
-        this.scenario('resume', 'Collision recovery: Start resumes from rest; contact cleared by scenario.');
-        this.waitFor('gap', this.config.driveGapS);
-      } else if (this.drive.phase === 'idle') this.spawnEpisode();
+        this.world = {
+          ...this.world, speedKmh: 0, braking: false, slowing: false, laneChange: null, outcome: 'running',
+          hazardActive: false,
+          followingVehicle: this.world.followingVehicle &&
+            (this.world.collisionCause === 'rear_vehicle' || this.world.collisionCause === 'front_vehicle')
+            ? { ...this.world.followingVehicle, speedKmh: 0, reactionRemainingS: 0 }
+            : this.world.followingVehicle,
+          collisionCause: null,
+        };
+        this.scenario('resume', 'Collision recovery: Start resumes from rest; animal contact cleared by scenario. Following traffic retains its lane and position; an involved vehicle also resumes from rest.');
+        this.waitForGap();
+      } else if (this.drive.phase === 'idle') this.waitForGap();
     } else if (this.world.outcome !== 'running') return;
     const timer = setInterval(() => {
       if (this.timer === timer) this.advance();
@@ -122,7 +137,8 @@ export class Simulation {
     this.stop();
     this.cancelRequests();
     this.models.reset?.();
-    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant, this.world.ambientTempC);
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant, this.world.ambientTempC, this.world.encounter);
+    if (this.drive.kind === 'free') this.world = { ...this.world, hazardActive: false, adjacentLanesBlocked: [] };
     this.log = [];
     this.gate = [];
     this.fast = this.emptyFast();
@@ -143,7 +159,10 @@ export class Simulation {
       throw new Error('Speed must be between 50 and 130 km/h.');
     }
     this.world = setWorldSpeed(this.world, speedKmh);
-    if (this.world.tick === 0 && this.timer === undefined) this.world.speedKmh = speedKmh;
+    if (this.world.tick === 0 && this.timer === undefined) {
+      this.world.speedKmh = speedKmh;
+      if (this.world.followingVehicle) this.world.followingVehicle.speedKmh = speedKmh;
+    }
     this.publish();
   }
 
@@ -176,10 +195,22 @@ export class Simulation {
   }
 
   setHazard(variant: HazardVariant): void {
-    if (this.drive.kind === 'free') throw new Error('Free-drive hazards come from the seeded sequence.');
+    if (this.drive.kind === 'free') throw new Error('Continuous-driving hazards come from the seeded sequence.');
     if (this.timer !== undefined || this.world.tick !== 0) throw new Error('Reset before changing the hazard.');
     this.hazardVariant = variant;
-    this.world = createWorld(this.config, this.world.selectedSpeedKmh, variant, this.world.ambientTempC);
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, variant, this.world.ambientTempC, this.world.encounter);
+    this.publish();
+  }
+
+  setEncounter(encounter: Encounter): void {
+    if (this.timer !== undefined || this.world.tick !== 0 || this.drive.phase !== 'idle') {
+      throw new Error('Reset before changing the encounter.');
+    }
+    if (encounter === 'rear_threat' && this.config.stub) {
+      throw new Error('Rear threat requires live mode; recordings do not cover following traffic.');
+    }
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant, this.world.ambientTempC, encounter);
+    if (this.drive.kind === 'free') this.world = { ...this.world, hazardActive: false, adjacentLanesBlocked: [] };
     this.publish();
   }
 
@@ -187,23 +218,26 @@ export class Simulation {
     if (this.timer !== undefined || this.world.tick !== 0 || this.drive.phase !== 'idle') {
       throw new Error('Reset before changing the run type.');
     }
-    if (kind === 'free' && this.config.stub) throw new Error('Free drive requires live mode; recorded advice covers only the staged scene.');
+    if (kind === 'free' && this.config.stub) throw new Error('Continuous driving requires live mode; recorded advice covers only the staged scene.');
     this.drive = emptyDrive(this.config.driveSeed, this.drive.durationS, kind);
+    this.world = createWorld(this.config, this.world.selectedSpeedKmh, this.hazardVariant, this.world.ambientTempC,
+      kind === 'free' ? 'standard' : this.world.encounter);
+    if (kind === 'free') this.world = { ...this.world, hazardActive: false, adjacentLanesBlocked: [] };
     this.publish();
   }
 
   setDriveDuration(seconds: number): void {
-    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 3600) {
-      throw new Error('Drive duration must be an integer between 1 and 3600 seconds.');
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) {
+      throw new Error('Drive duration must be an integer between 0 and 3600 seconds (0 means until Stop).');
     }
     this.drive.durationS = seconds;
     if (this.drive.kind === 'free' && this.drive.phase !== 'idle' &&
-        this.drive.phase !== 'finished' && this.drive.elapsedS >= seconds) this.finishDrive('duration');
+        this.drive.phase !== 'finished' && seconds > 0 && this.drive.elapsedS >= seconds) this.finishDrive('duration');
     this.publish();
   }
 
   stopDrive(): void {
-    if (this.drive.kind !== 'free') throw new Error('Stop is available in free drive; use Reset for staged moments.');
+    if (this.drive.kind !== 'free') throw new Error('Stop is available in continuous driving; use Reset for staged moments.');
     if (this.drive.phase !== 'finished') this.finishDrive('stopped');
     this.publish();
   }
@@ -222,7 +256,13 @@ export class Simulation {
   }
 
   private emptyAdvice(): Snapshot['advice'] {
-    return { status: 'idle', observedAtTick: null, data: null, error: null, gate: null, application: null };
+    return { status: 'idle', observedAtTick: null, cancellation: null, data: null, error: null, gate: null, application: null };
+  }
+
+  private cancelPendingAdvice(reason: NonNullable<Snapshot['advice']['cancellation']>['reason']): void {
+    if (this.advice.status === 'thinking') {
+      this.advice = { ...this.advice, status: 'cancelled', cancellation: { atTick: this.world.tick, reason } };
+    }
   }
 
   private advance(): void {
@@ -231,13 +271,13 @@ export class Simulation {
       this.driveTicks += 1;
       this.drive.elapsedS = this.driveTicks * this.config.tickMs / 1000;
       this.resolveEpisode();
-      if (this.drive.elapsedS >= this.drive.durationS) this.finishDrive('duration');
+      if (this.drive.durationS > 0 && this.drive.elapsedS >= this.drive.durationS) this.finishDrive('duration');
       else if (this.drive.phase === 'episode') this.beginTick();
       else if (this.drive.phase === 'dwell' && this.world.tick >= this.phaseUntilTick) {
-        this.world = { ...this.world, braking: false, outcome: 'running', hazardActive: false };
-        this.scenario('clear', 'Stopped contact cleared by scenario, not model output; accelerating during the gap.');
-        this.waitFor('gap', this.config.driveGapS);
-      } else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick) {
+        this.world = { ...this.world, braking: false, slowing: false, outcome: 'running', hazardActive: false };
+        this.scenario('clear', 'Stopped animal contact cleared by scenario, not model output; following traffic persists; accelerating during the gap.');
+        this.waitForGap();
+      } else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick && this.recoverySeconds() === 0) {
         this.spawnEpisode();
         this.beginTick();
       }
@@ -278,18 +318,35 @@ export class Simulation {
     this.phaseUntilTick = this.world.tick + Math.ceil(seconds * 1000 / this.config.tickMs);
   }
 
+  private waitForGap(): void {
+    const next = nextGap(this.sequenceSeed, this.config.driveGapS);
+    this.sequenceSeed = next.seed;
+    this.waitFor('gap', next.seconds);
+  }
+
+  private recoverySeconds(): number {
+    return this.world.encounter === 'rear_threat'
+      ? Math.max(0, this.world.selectedSpeedKmh - this.world.speedKmh) / 3.6 / this.config.accelMps2 : 0;
+  }
+
   private spawnEpisode(): void {
     this.cancelRequests();
     const next = nextHazard(this.sequenceSeed, this.world.carLane);
-    this.sequenceSeed = next.seed;
     const previous = this.world;
+    const spawn = nextSpawnDistance(next.seed);
+    this.sequenceSeed = spawn.seed;
     this.hazardVariant = next.variant;
     this.world = {
-      ...createWorld(this.config, previous.selectedSpeedKmh, next.variant, previous.ambientTempC),
+      ...createWorld(this.config, previous.selectedSpeedKmh, next.variant, previous.ambientTempC, previous.encounter),
       tick: previous.tick, carLane: previous.carLane, speedKmh: previous.speedKmh,
       distanceTravelledM: previous.distanceTravelledM,
-      hazard: { lane: previous.carLane, distanceM: this.config.initialHazardDistanceM, kind: next.kind },
-      adjacentLanesBlocked: next.blocked,
+      hazard: {
+        lane: previous.carLane,
+        distanceM: previous.encounter === 'rear_threat' ? this.config.initialHazardDistanceM : spawn.distanceM,
+        kind: next.kind,
+      },
+      followingVehicle: previous.followingVehicle,
+      adjacentLanesBlocked: next.blocked.filter((lane) => lane !== previous.followingVehicle?.lane),
     };
     this.drive.episodeId = (this.drive.episodeId ?? 0) + 1;
     this.drive.phase = 'episode';
@@ -297,13 +354,15 @@ export class Simulation {
     this.fast = { ...this.emptyFast(), missedDeadlines: this.fast.missedDeadlines, deadlineTicks: this.fast.deadlineTicks };
     this.advice = this.emptyAdvice();
     this.appliedAction = null;
-    this.scenario('spawn', `New sensor contact in lane ${this.world.carLane}; seeded adjacent traffic.`);
+    this.scenario('spawn', `New sensor contact in lane ${this.world.carLane} at ${Math.round(this.world.hazard.distanceM)} m; seeded adjacent traffic. Existing following traffic unchanged.`);
   }
 
   private resolveEpisode(): void {
-    if (this.drive.phase !== 'episode' || this.world.outcome === 'running') return;
+    if (this.world.outcome === 'running' ||
+        (this.drive.phase !== 'episode' &&
+          !(this.world.outcome === 'collision' && (this.drive.phase === 'gap' || this.drive.phase === 'dwell')))) return;
     this.cancelRequests();
-    if (this.advice.status === 'thinking') this.advice = { ...this.advice, status: 'idle', observedAtTick: null };
+    this.cancelPendingAdvice(this.world.outcome === 'collision' ? 'collision' : 'episode_ended');
     if (this.fast.status === 'pending') this.fast.status = 'idle';
     const outcome = this.world.outcome;
     if (outcome === 'collision') {
@@ -317,16 +376,16 @@ export class Simulation {
       this.scenario('stopped', 'Stopped before contact. Waiting for scenario clearance; episode work cancelled.');
     } else {
       if (outcome === 'swerved') this.drive.score.avoidedBySwerving += 1;
-      this.scenario('passed', `Contact passed (${outcome}); episode work cancelled.`);
-      this.world = { ...this.world, outcome: 'running', hazardActive: false, braking: false };
-      this.waitFor('gap', this.config.driveGapS);
+      this.scenario('passed', `Contact passed (${outcome}); episode work cancelled; following traffic persists.`);
+      this.world = { ...this.world, outcome: 'running', hazardActive: false, braking: false, slowing: false };
+      this.waitForGap();
     }
   }
 
   private finishDrive(reason: 'duration' | 'stopped'): void {
     this.stop();
     this.cancelRequests();
-    if (this.advice.status === 'thinking') this.advice = { ...this.advice, status: 'idle', observedAtTick: null };
+    this.cancelPendingAdvice(reason);
     if (this.fast.status === 'pending') this.fast.status = 'idle';
     this.drive.phase = 'finished';
     this.drive.finishReason = reason;
@@ -447,7 +506,7 @@ export class Simulation {
     this.slowEpisodeId = episodeId;
     const observedAtTick = this.world.tick;
     const controller = new AbortController();
-    this.advice = { ...this.advice, status: 'thinking', observedAtTick, error: null };
+    this.advice = { ...this.advice, status: 'thinking', observedAtTick, cancellation: null, error: null };
     const timeout = setTimeout(() => {
       if (!this.ownsSlow(generation, episodeId)) return;
       controller.abort();
@@ -491,7 +550,7 @@ export class Simulation {
     if (this.slowFlight) clearTimeout(this.slowFlight.timeout);
     this.slowFlight = undefined;
     this.advice = {
-      status: 'ready', observedAtTick,
+      status: 'ready', observedAtTick, cancellation: null,
       data: {
         ...result, observedAtTick, arrivedAtTick: this.world.tick,
         ...(this.drive.kind === 'free' && this.drive.episodeId !== null ? { episodeId: this.drive.episodeId } : {}),
@@ -552,38 +611,42 @@ export class Simulation {
     const application = this.check(envelope, 'application');
     const applied = application.decision;
     const previous = this.appliedAction;
+    const action = envelope.action.replaceAll('_', ' ');
+    const previousAction = previous?.envelope.action.replaceAll('_', ' ');
     const sameAction = previous?.envelope.action === envelope.action && previous.envelope.toLane === envelope.toLane;
     if (!proposed.allowed || !applied.allowed) {
       const reasons = !applied.allowed ? applied.reasons : !proposed.allowed ? proposed.reasons : [];
-      this.actionStatus = `${envelope.source} ${envelope.action} refused: ${reasons.map((reason) => reason.reason).join(' + ')}.`;
+      this.actionStatus = `${envelope.source} ${action} refused: ${reasons.map((reason) => reason.reason).join(' + ')}.`;
     } else if (this.world.outcome !== 'running' && this.world.outcome !== 'braked') {
-      this.actionStatus = `${envelope.source} ${envelope.action} checked; terminal world unchanged.`;
-    } else if (envelope.action === 'brake' && !this.inPath()) {
-      this.actionStatus = `${envelope.source} brake not applied: sensed contact is outside the occupied path.`;
+      this.actionStatus = `${envelope.source} ${action} checked; terminal world unchanged.`;
+    } else if ((envelope.action === 'brake' || envelope.action === 'slow_down') && !this.inPath()) {
+      this.actionStatus = `${envelope.source} ${action} not applied: sensed contact is outside the occupied path.`;
     } else if (
       envelope.source === 'slow' && previous?.envelope.source === 'fast' &&
       previous.atTick === this.world.tick && !sameAction
     ) {
-      this.actionStatus = `slow ${envelope.action} allowed, not applied: fast ${previous.envelope.action} wins the same-tick conflict.`;
+      this.actionStatus = `slow ${action} allowed, not applied: fast ${previousAction} wins the same-tick conflict.`;
     } else if (envelope.action === 'swerve' && (envelope.toLane === undefined || Math.abs(envelope.toLane - this.world.carLane) !== 1)) {
       this.actionStatus = 'Slow swerve not applied: target lane is not adjacent.';
       this.advice.error = this.actionStatus;
     } else if (sameAction && !safetyFallback) {
       // Reaffirming an engaged action does not move its original application tick.
-      this.actionStatus = `${envelope.source} ${envelope.action} unchanged; applied at tick ${previous.atTick}.`;
+      this.actionStatus = `${envelope.source} ${action} unchanged; applied at tick ${previous.atTick}.`;
     } else {
       const fromLane = this.world.carLane;
       this.world = applyAction(this.world, envelope.action, envelope.toLane);
       this.appliedAction = { atTick: this.world.tick, envelope: { ...envelope, speedKmh: this.world.speedKmh } };
-      this.actionStatus = `${envelope.source} ${envelope.action} applied.`;
+      this.actionStatus = `${envelope.source} ${action} applied.`;
       if (previous && previous.atTick < this.world.tick) {
         application.supersedes = previous;
-        this.actionStatus = `${envelope.source} ${envelope.action} applied - superseded ${previous.envelope.source} ${previous.envelope.action} at tick ${previous.atTick}.`;
+        this.actionStatus = `${envelope.source} ${action} applied - superseded ${previous.envelope.source} ${previousAction} at tick ${previous.atTick}.`;
         const lane = envelope.action === 'swerve' ? ` lane ${fromLane} -> ${envelope.toLane}` : '';
-        const replaced = `${previous.envelope.source} ${previous.envelope.action} ${previous.envelope.action === 'brake' && envelope.action !== 'brake' ? 'released' : 'replaced'}`;
+        const released = (previous.envelope.action === 'brake' || previous.envelope.action === 'slow_down') &&
+          envelope.action !== previous.envelope.action;
+        const replaced = `${previous.envelope.source} ${previousAction} ${released ? 'released' : 'replaced'}`;
         this.log.unshift({
           tick: this.world.tick,
-          detail: `supersession: ${envelope.source} ${envelope.action}${lane} / allowed - ${replaced}`,
+          detail: `supersession: ${envelope.source} ${action}${lane} / allowed - ${replaced}`,
           majorDamageRisk: this.fast.majorDamageRisk, adjacentLaneClear: this.fast.adjacentLaneClear,
           deadlineMissed: false, supersession: { previous, envelope },
         });

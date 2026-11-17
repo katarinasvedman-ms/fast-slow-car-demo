@@ -29,10 +29,13 @@ function render(events: Parameters<typeof renderDash>[1] = []): void {
   if (!current) return;
   renderDash(current, events, busy, choosingScenario);
   const scenario = scenarioFor(selection.update(current.snapshot));
+  for (const id of ['rear-threat', 'continuous-rear-threat']) {
+    const option = scenarioSelect.querySelector<HTMLOptionElement>(`option[value="${id}"]`);
+    if (option) option.disabled = current.snapshot.backend === 'stub';
+  }
   scenarioSelect.value = scenario.id;
   scenarioSelect.disabled = busy;
   element('scenario-watch').textContent = `What to watch: ${scenario.watch}`;
-  element('scenario-caption').textContent = scenario.name;
   element('caption').textContent = `${scenario.name}: ${scenario.watch}`;
 }
 
@@ -86,14 +89,15 @@ function mute(): void {
 element('start').addEventListener('click', start);
 element('reset').addEventListener('click', () => execute([{ command: 'reset' }]));
 element('stop').addEventListener('click', () => execute([{ command: 'stop' }]));
-element('free-drive').addEventListener('click', () => tune([
-  { command: 'reset' }, { command: 'run', value: 'free' }, { command: 'mode', value: 'async_gated' },
-]));
 select('run').addEventListener('change', () => {
   const value = select('run').value;
   if (value === 'free' || value === 'staged') tune([
     { command: 'reset' }, { command: 'run', value },
-    ...(value === 'free' ? [{ command: 'mode', value: 'async_gated' } as const] : []),
+    ...(value === 'free' ? [
+      { command: 'mode', value: 'async_gated' } as const,
+      { command: 'encounter', value: 'rear_threat' } as const,
+      { command: 'duration', value: 0 } as const,
+    ] : []),
   ]);
 });
 element('mute').addEventListener('click', mute);

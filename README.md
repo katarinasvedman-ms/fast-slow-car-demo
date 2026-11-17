@@ -27,7 +27,9 @@ npm start
 ```
 
 Open `http://127.0.0.1:3000`. One process serves the page, controls, and SSE on
-loopback. Models are invoked only after **Start**. **Reset** cancels old work.
+loopback. Startup speed is **110 km/h**; Reset keeps your selected speed.
+The four original teaching presets retain their explicit 90 km/h settings.
+Models are invoked only after **Start**. **Reset** cancels old work.
 SSE is authoritative in both views. A backpressured connection retains only its
 latest pending snapshot and resumes on drain, rather than disconnecting or
 queuing an unbounded history.
@@ -110,7 +112,9 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | Ambiguous hazard | Fast only, Ambiguous, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
 | Late advice refused | Async + gated, Elk, 90 km/h, threshold 0.35, -4 °C, staleness 3 |
 | Allowed swerve | Async + gated, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 6 |
-| Free drive (Details) / Stop | Select live-only continuous episodes / end with a scoreboard |
+| Rear threat (live) | Async + gated, Elk at configured initial range, 110 km/h, 12 °C, staleness 10; following traffic reacts late |
+| Continuous rear threats (live) | Same speed/gate settings, configured forward range and initial follower gap, new hazard types, persistent traffic, no time limit; collision pauses |
+| Continuous rear threats (Run in Details) / Stop | Select continuous rear threats / end with a scoreboard |
 
 Presets reset first and apply the existing commands serially, then wait for
 **Start**. Mode and hazard remain locked until Reset, with a **Reset to change**
@@ -130,7 +134,7 @@ while driving, so it can be seen before a safe pass. Identity comes only from
 the audience-facing `world.identity`, never the dropdown. A terminal outcome
 also reveals identity, including a stop farther away.
 **Neither model receives the identity, image or reveal state**: both still get
-the unchanged derived sensor text. This applies to Ambiguous and free drive too.
+the unchanged derived sensor text. This applies to Ambiguous and continuous driving too.
 The labelled thermal/radar overlay can show contacts beyond the headlights and
 fog; the contact is projected from its sensor lane and range into the windshield,
 including during lane changes. Its range caption sits beside the contact rather
@@ -149,7 +153,8 @@ asphalt sheen, a lit horizon glow, soft brake-light falloff,
 hood edge and A-pillars frame the view. The mirror shows the existing observed
 vehicle behind, not additional traffic. Its rear-camera image is reflected
 horizontally, so lane 1 stays left, and follows the car's reported lane throughout
-a turn without moving the traffic or changing its fixed 20 m gap.
+a turn without moving the fixed-gap lane-1 traffic. The Rear threat preset
+additionally shows its physically simulated following vehicle in lane 2.
 The smaller steering wheel sits at the bottom centre of the windshield,
 partly behind the hood, never in a dashboard card. The risk
 number is below, not on top of, its dial. A large envelope bounces back on a
@@ -176,7 +181,9 @@ car. Lane headers mark blocked/clear traffic; green zones show the stated
 **100 m clearance**. Hazard range, road condition, and sensor description are
 visible alongside the road. Distances use one shared road scale; car icons are
 not to scale. The other vehicle is co-moving scenery with a fixed relative gap,
-not an independently simulated traffic participant.
+not an independently simulated traffic participant. The live-only Rear threat
+preset adds a separate moving follower, with its measured gap and relative speed
+shared between both views and model observations.
 
 Observation text and scene data share `observeScene` and world-backed distances,
 so the renderer does not invent objects or duplicate the observation constants.
@@ -191,7 +198,7 @@ animal shows the squirrel image from `public\images`, including after Reset.
 These are audience-only previews selected from the dropdown; models still receive
 sensor text only. Ambiguous keeps the unidentified contact marker until the
 150 m audience reveal or a terminal outcome.
-Free drive has no explicit audience-selected hazard: both views conceal generated
+Continuous driving has no explicit audience-selected hazard: both views conceal generated
 identity until the 150 m audience reveal or a terminal outcome, and the public
 `hazardVariant` is null.
 
@@ -212,7 +219,7 @@ engaged action does not change its original application tick.
 | Moment | Controls and expected result |
 |---|---|
 | Confident elk | Fast only, Elk, 90 km/h, threshold 0.35. Risk is high and braking fires. The recorded cold call also visibly demonstrates one deadline default. |
-| Ambiguous hazard | Fast only, Ambiguous, threshold 0.35. Recorded risk is 0.4073 (displayed 0.41): brake, even though it is below 0.5. Reset and use threshold 0.5 to contrast continuing. |
+| Ambiguous hazard | Fast only, Ambiguous, threshold 0.35. Recorded risk is 0.4073 (displayed 0.41): brake, even though it is below 0.5. Reset and use threshold 0.5 to contrast gentle slowing instead of emergency braking. |
 | Late advice | Async + gated, Elk, 90 km/h, -4 °C, threshold 0.35, staleness 3. At five ticks in STUB mode, the recorded swerve is refused for both `stale_advice` and `prohibited_action` (ice risk, limit 40 km/h). |
 | Supersession | Async + gated, Elk, 90 km/h, 12 °C, threshold 0.35, staleness 6. The first recorded slow swerve is allowed (normal grip, limit 110 km/h), releases the fast brake and starts lane change 2 -> 3. After the turn, braking releases and actual speed recovers to 90 km/h. |
 
@@ -290,40 +297,125 @@ the car still occupies the hazard lane until it finishes; it cannot teleport
 past a contact. The Ambiguous contact's identity is revealed to the audience
 within 150 m or after an outcome, never added to either model's input.
 
-## Free drive (live only)
+## Rear threat (live-only staged scenario)
 
-Use **Free drive** in either view, or choose **Run: Free drive** in Details.
-Selection resets the world and chooses Async + gated; edit the mode before Start
-if desired. Presets **1-4 always return to staged moments**, with their original
-settings. Free drive is disabled in STUB, including on the server: the checked-in
+Select **Rear threat (live)** in the cockpit Scenario dropdown, then Start.
+It sets Async + gated, Elk, 110 km/h, 12 °C and a 10-tick (4 s) advice limit.
+The contact starts at `INITIAL_HAZARD_DISTANCE_M` (500 m if unset); a following vehicle starts
+`FOLLOWING_VEHICLE_DISTANCE_M` behind in lane 2 (80 m by default)
+at the same speed. Lane 1 has the existing traffic; lane 3 is observed clear.
+This staged preset does not start automatically or change continuous driving.
+To move the animal farther away, edit `.env` and restart the server; Reset alone
+does not reload environment settings. Try `INITIAL_HAZARD_DISTANCE_M=80` for a
+short warning, 45 for an especially tight encounter, or 300 for a distant contact.
+This setting affects all staged scenes and continuous Rear threats.
+The follower gap can be tuned separately with `FOLLOWING_VEHICLE_DISTANCE_M`;
+the earlier 35 m setup is a tight rear-impact comparison, while the 80 m default
+gives reasoning and a three-tick turn more room. Restart after editing either distance.
+
+Use `BRAKE_DECEL_MPS2=9` in `.env` and restart for the emergency-braking rehearsal
+(this workspace is configured that way). This is an environment setting, not a
+scenario physics override; the original default remains 1.5 m/s².
+The following driver reacts 1.6 s after the first braking or actual gentle-slowing action, then decelerates
+at 4.5 m/s². Those are toy-world parameters, not claims about typical drivers.
+The world keeps advancing after the ego car stops if the follower is approaching.
+With a close follower (e.g. 35 m) at 90 km/h and 45 m forward range, hard braking
+alone can stop before the animal yet still end in a rear collision.
+At the 110 km/h highway default, braking distance is already about 52 m before
+response delay, exceeding a 45 m forward range; a front impact can occur first.
+Reducing the speed manually is an explicit comparison, not a hidden preset change.
+The short ranges do not guarantee time for reasoning or a completed lane change;
+the world and live model latency are not slowed to manufacture an avoidance.
+
+Watch the mirror, **FOLLOWER** range/closing-speed readout, REFLEX, ADVISER and
+THE GATE. Radar range, speed and closing speed reach both models as sensor text;
+hidden reaction timing, animal identity and temperature do not.
+Input explicitly names the ego lane, turn progress and all three observed lanes,
+including the lane already occupied, so moving into lane 3 does not erase its
+clearance reading. Traffic clearance is separate from the forward animal contact.
+Compare Fast only with Async + gated by resetting before changing mode.
+A timely, permitted lane change can avoid the rear path, but it takes three
+physical ticks and remains vulnerable until it clears the lane. Rear impacts
+say **STRUCK FROM BEHIND**, without displaying the animal-impact cutout.
+
+Reasoning is not guaranteed to improve the result: it may retain braking, fail,
+arrive late, lose a same-tick conflict or be refused. All existing age/speed gate
+checks remain intact; no successful swerve is scripted. A longer initial gap can
+also make braking alone sufficient. This remains a fixed-clock toy, not a
+validated driving/safety model. STUB rejects this scenario because the existing
+recordings do not cover the new traffic; no paid calls or recordings were made
+to implement it.
+
+## Continuous rear threats (live only)
+
+For the continuing rear-threat demo, select **Continuous rear threats (live)**
+in the cockpit Scenario dropdown, then **Start**. It keeps 110 km/h, Async + gated,
+12 °C and staleness 10, and sets duration to **0 (until Stop)**. New hazards appear
+at `INITIAL_HAZARD_DISTANCE_M` in the car's current lane (this rehearsal: **80 m
+ahead**), with seeded elk, small animal or ambiguous descriptions and adjacent
+traffic. One following car starts `FOLLOWING_VEHICLE_DISTANCE_M` behind (this
+rehearsal: **80 m**) at the selected speed, visible even before Start and throughout
+quiet stretches. It uses the staged preset's delayed-braking physics and
+**persists across encounters**: its lane, position, speed and reaction state are
+never reset when an animal appears or clears. It may pass in another lane or fall
+behind, even beyond the mirror's range. It stays in its own lane and, once braked
+to rest, stays stopped; it does not chase the ego car or accelerate to maintain a
+fixed gap. Reset explicitly restages it. Seeded static lane traffic is omitted
+from its lane rather than hiding a second vehicle behind the same sensor marker.
+There is no model work between animal contacts, and speed recovers
+physically to the selected setting before another rear-threat contact appears.
+Collisions still pause for inspection; **Start** resumes from rest, retaining the
+score. **Stop** ends the run. The ordinary **Rear threat (live)** preset remains
+a single encounter.
+
+Both views also offer **Run: Continuous rear threats** (in Details in the cockpit).
+Selection resets the world, chooses Async + gated and removes the duration limit,
+preserving the other tuning settings. Presets **1-4 always return to staged
+moments**, with their original settings. The separate Free drive button and
+Standard/Rear traffic selector have been removed. The underlying episode engine
+remains internal. Continuous driving is disabled in STUB, including on the server: the checked-in
 slow recommendation fits only the staged scene. It has not been silently reused
 for other lanes/traffic, and no paid recordings were added.
 
-Set **Drive duration (s)** before or during a run (integer 1..3600). Start begins
-a seeded sequence of contacts in the car's current lane, with elk, small-animal
-or ambiguous sensor descriptions and seeded neighboring-lane traffic. Ambiguous
-contacts also have a seeded hidden physical identity. `DRIVE_SEED` repeats the
-sequence for the same lane history; model timing/actions can change that history.
-The road and model inputs still share the same observation code and fixed-gap
-traffic; the cumulative odometer prevents the road jumping backward at a spawn.
+Set **Drive duration (s)** in Details before or during a run (integer 0..3600;
+**0 means until Stop**). The road begins with the following car but no animal.
+After a seeded random quiet stretch, one contact appears in the car's current
+lane, with elk, small-animal or ambiguous sensor descriptions and seeded
+neighboring-lane traffic. Ambiguous
+contacts also have a seeded hidden physical identity. `DRIVE_SEED` repeats timing,
+distance samples and hazard/traffic choices for the same lane and speed history;
+live model timing/actions or edited settings can change that history. No future
+hazard is generated or observed by either model before its spawn tick.
+The road and model inputs share the same observation code; the cumulative
+odometer and persistent vehicle position prevent jumps at a spawn.
 
 After a completed passage, a moving, contact-free gap precedes the next episode.
 After stopping before a contact, a dwell of `DRIVE_DWELL_S` precedes an explicitly
-logged **scenario clearance**, not a model decision. The gap then allows physical
-acceleration back toward selected speed. Defaults are **3 s dwell / 15 s gap**;
-the default gap exceeds the 12.5 s needed to recover from rest to 90 km/h at
-2 m/s². Dwell/gap transitions occur on clock ticks (rounded up; even zero waits
-until the next tick). There are no model calls during dwell, gap or pauses.
+logged **animal scenario clearance**, not a model decision or traffic removal.
+Traffic in another lane continues moving during a stopped dwell. The gap allows physical
+acceleration back toward selected speed. Defaults are **3 s dwell / 2.55–3.45 s
+random gaps** (85–115% of `DRIVE_GAP_S`), including before the first contact and
+after collision recovery. Continuous rear threats extend the gap until recovery.
+Dwell/gap transitions occur on clock ticks
+(rounded up; even zero waits until the next tick). There are no model calls during
+dwell, gap or pauses.
 
-A collision counts once and **pauses**. **Start** explicitly clears that crashed
-episode as a scenario event and resumes from rest into a gap; it does not reset
-the score. Running-time duration includes dwell and gaps but excludes collision
-pauses. Duration expires on the first clock boundary at or beyond its limit;
+Only one stationary hazard exists at a time; animal motion and dynamic traffic
+beyond this persistent vehicle remain out of scope. Staged presets, recordings
+and audience-only reveal rules are unchanged. The legacy standard 35–65 m
+episode branch is retained for API compatibility, not exposed as a second mode.
+
+A collision, including a traffic impact during a quiet stretch, counts once and
+**pauses**. **Start** explicitly clears the animal contact and resumes from rest
+into a gap without resetting the score or moving the following car; a directly
+impacted following car resumes from rest too. Catching it ahead is labelled
+**VEHICLE AHEAD IMPACT**, not an animal collision. Running-time duration includes dwell and gaps but excludes collision
+pauses. A nonzero duration expires on the first clock boundary at or beyond its limit;
 shortening it below elapsed time ends immediately. **Stop** ends even during a
 collision pause. Both show the final scoreboard; **Reset** starts over, preserving
 the selected run kind, live duration, speed, temperature and staleness limit.
 
-In reasoning modes there is **at most one slow request per free-drive episode**,
+In reasoning modes there is **at most one slow request per continuous-driving episode**,
 with no automatic retry, even after refusal or failure. Both fast and slow work
 carry episode ownership; resolving, stopping or resetting cancels pending work.
 Late advice from a completed episode cannot apply to another. Gate proposal and
@@ -333,15 +425,43 @@ The scoreboard counts contacts faced, actual stops before contact, completed
 swerved passages, gate-allowed/refused slow advice, each refusal reason,
 collisions and unsuppressed fast deadline misses. Allowed does **not** mean applied:
 same-tick priority or an invalid target can still prevent application. A single
-refusal may count in both reason totals. Safe small-animal passage without a stop
-or swerve counts as faced but neither avoidance category. Interrupted episodes
-are not recorded as successes.
+refusal may count in both reason totals. Striking any animal, including a squirrel,
+in an occupied lane counts as a collision, not a safe passage. Predicted major
+vehicle damage and physical contact are distinct. Interrupted episodes are not
+recorded as successes.
+
+**Small-animal trade-off:** slow advice is instructed to prefer a safer observed
+clear adjacent route even for a low-mass contact, rather than strike it merely
+because expected damage is low. If no safer observed route exists, it should
+continue rather than risk a worse collision with a dangerous swerve or hard
+braking. Large/uncertain contacts still call for braking when no safer route is
+observed. The fast layer now proposes **gentle slowing** for a known low-risk
+contact in the occupied path: `GENTLE_DECEL_MPS2` (3 m/s² by default, capped at the
+emergency setting) toward `GENTLE_SPEED_KMH` (50 km/h by default, capped at selected
+speed). It keeps moving rather than gently stopping, never raises an already
+lower actual speed, and never swerves. The cockpit shows **GENTLE SLOWDOWN**,
+separately from emergency **BRAKING**. The following car reacts to both.
+High-risk/unknown/error/deadline emergency braking and both gate rules remain
+unchanged. A later allowed action releases gentle slowing without a speed jump;
+after the turn clears the path, physical acceleration recovers selected speed.
+At 110 km/h, an 80 m contact is about 2.6 s away without slowing and about 3.1 s
+away under ideal immediate 3 m/s² slowing (the toy resolves at clock boundaries).
+A three-tick turn still takes 1.2 s. This adds only a little time, not guaranteed
+avoidance or a guarantee that live reasoning arrives in time. Fast-only mode
+still has no slow escape advice. Recordings remain unchanged; their probabilities
+now pass through the updated fast policy.
+
+If continuous driving cancels a pending assessment at collision, episode end,
+Stop, or the duration limit, both views retain its observation tick, cancellation
+reason/tick and elapsed wait. The age freezes at cancellation; it is not a gate
+refusal or a model recommendation. Late results remain discarded. The next
+encounter replaces the assessment, and Reset clears it.
 
 **Expected billable requests:** at the default 400 ms clock, uninterrupted active
 hazard ticks send **150 Decision-1 requests per minute** (151 if counting both
 endpoints of a 60-second interval). Episode-start requests occupy those ticks;
-only the initial Start additionally captures tick zero. Each request contains
-**both** predicates, not two billable calls.
+Continuous driving makes no tick-zero request because it starts with a quiet gap. Each
+request contains **both** predicates, not two billable calls.
 Reasoning modes add **one GPT-5.4 request per episode started**; Fast only adds
 none. For a full running minute, count the actual active request ticks, at most
 about 150 fast calls (boundary/start effects aside), and the episodes begun in it.
@@ -352,7 +472,7 @@ For example, 20-second active episodes followed by the default roughly 15-second
 gap average about **86 fast + 1.7 slow requests/minute** in a reasoning mode,
 not a measured prediction of live model behavior.
 
-Offline verification of free-drive lifecycle uses injected mock services through
+Offline verification of the episode lifecycle uses injected mock services through
 the real simulation/server and is labelled **MOCK MODEL TEST / NO PAID CALLS**.
 Those screenshots are not Foundry responses or additional recorded fixtures.
 
@@ -366,12 +486,15 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 | `STUB` | `0` | `1` disables all app network/model authentication calls |
 | `TICK_MS` / `TICK_BUDGET_MS` | `400` / `350` | Fixed clock (minimum 50 ms) and fast deadline; budget must be smaller |
 | `BRAKE_DECEL_MPS2` | `1.5` | Positive gradual braking deceleration |
+| `GENTLE_DECEL_MPS2` | `3` | Low-risk slowdown deceleration, capped at `BRAKE_DECEL_MPS2` (local rehearsal: 3 versus 9 m/s²) |
+| `GENTLE_SPEED_KMH` | `50` | Low-risk slowdown target, capped at selected speed; never accelerates an already slower car |
 | `ACCEL_MPS2` | `2.0` | Clear-path recovery acceleration in m/s² (0.01..100); no acceleration during turns |
-| `DRIVE_SEED` | `42` | Unsigned 32-bit seeded hazard/adjacent-traffic sequence |
-| `DRIVE_DURATION_S` | `120` | Initial live-editable running-time duration, integer 1..3600 seconds |
-| `DRIVE_GAP_S` | `15` | Contact-free moving gap between episodes, 0..300 seconds |
+| `DRIVE_SEED` | `42` | Unsigned 32-bit seeded quiet-gap, hazard/adjacent-traffic and spawn-distance sequence |
+| `DRIVE_DURATION_S` | `120` | Initial live-editable running-time duration, integer 0..3600 seconds; 0 means until Stop |
+| `DRIVE_GAP_S` | `3` | Base quiet interval, 0..300 seconds; each initial/subsequent gap samples 85–115%, rounded up to ticks |
 | `DRIVE_DWELL_S` | `3` | Stopped-contact dwell before scenario clearance, 0..300 seconds |
-| `INITIAL_HAZARD_DISTANCE_M` | `500` | Initial contact distance |
+| `INITIAL_HAZARD_DISTANCE_M` | `500` | Contact distance for staged scenes and continuous Rear threats; restart after edits |
+| `FOLLOWING_VEHICLE_DISTANCE_M` | `80` | Initial follower gap in staged/continuous Rear threats, 0.01..1000 m; not restored between episodes; restart after edits |
 | `STALENESS_LIMIT_TICKS` | `3` | Initial live-editable UI limit; refuse observation age strictly greater than this |
 | `SWERVE_SPEED_LIMIT_NORMAL` | `110` | Normal-grip swerve limit in km/h (0..130) |
 | `SWERVE_SPEED_LIMIT_FROST` | `70` | Frost-risk swerve limit in km/h (0..130) |

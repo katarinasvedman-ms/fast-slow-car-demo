@@ -438,6 +438,7 @@ test('supersession checks actual application speed rather than the speed observe
     slow: { name: 'Pending advice', advise: (observation) => { captured = observation; return pending.promise; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
+  simulation.setSpeed(90);
   simulation.setTemperature(3);
   simulation.start();
   await flush();
@@ -531,12 +532,49 @@ test('a later fast action may release a brake and a subsequent new brake may sup
   context.mock.timers.tick(400);
   await flush();
   assert.equal(simulation.snapshot().world.braking, false);
+  assert.equal(simulation.snapshot().world.slowing, true);
   assert.equal(simulation.snapshot().gate[0]?.supersedes?.atTick, 0);
   simulation.setThreshold(0.35);
   context.mock.timers.tick(400);
   await flush();
   assert.equal(simulation.snapshot().world.braking, true);
+  assert.equal(simulation.snapshot().world.slowing, false);
   assert.equal(simulation.snapshot().gate[0]?.supersedes?.atTick, 1);
+});
+
+test('low-risk slowing is a revisable fast action, allowing timely gated escape and clear-path recovery', async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  const pending = deferred<SlowResult>();
+  let calls = 0;
+  const simulation = new Simulation(loadConfig({ BRAKE_DECEL_MPS2: '9', INITIAL_HAZARD_DISTANCE_M: '80' }), fakeModels({
+    slow: { name: 'Mock escape', advise: () => ++calls === 1 ? pending.promise : new Promise(() => {}) },
+  }), () => Date.now());
+  context.after(() => simulation.dispose());
+  simulation.setHazard('small_animal');
+  simulation.start();
+  await flush();
+  assert.equal(simulation.snapshot().world.slowing, true);
+  assert.equal(simulation.snapshot().world.braking, false);
+  context.mock.timers.tick(400);
+  await flush();
+  const slowed = simulation.snapshot();
+  assert.ok(Math.abs(slowed.world.speedKmh - 105.68) < 1e-8);
+  assert.match(slowed.actionStatus, /unchanged; applied at tick 0/);
+  pending.resolve({ ...swerve, latencyMs: 400 });
+  await flush();
+  const allowed = simulation.snapshot();
+  assert.equal(allowed.world.slowing, false);
+  assert.equal(allowed.world.speedKmh, slowed.world.speedKmh);
+  assert.equal(allowed.advice.gate?.allowed, true);
+  assert.equal(allowed.gate.find((entry) => entry.envelope.source === 'slow' && entry.phase === 'application')?.supersedes?.envelope.action, 'slow_down');
+  for (let i = 0; i < 3; i++) { context.mock.timers.tick(400); await flush(); }
+  const clear = simulation.snapshot();
+  assert.equal(clear.world.carLane, 3);
+  assert.equal(clear.world.slowing, false);
+  assert.equal(clear.world.braking, false);
+  context.mock.timers.tick(400);
+  await flush();
+  assert.ok(Math.abs(simulation.snapshot().world.speedKmh - clear.world.speedKmh - 2.88) < 1e-8);
 });
 
 test('a stopped brake can be revised by pending permitted advice, with acceleration only after clearing the turn', async (context) => {

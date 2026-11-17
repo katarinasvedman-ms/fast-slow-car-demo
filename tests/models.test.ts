@@ -13,7 +13,12 @@ test('answer variants are narrowed; unknown is not false and the threshold bound
   const answers = { major_damage_risk: { type: 'noul', noul: 0.35 }, adjacent_lane_clear: { type: 'noul', noul: 0.9 } };
   const result = { ...parseFastAnswers(answers), latencyMs: 1 };
   assert.equal(fastAction(result, 0.35, true), 'brake');
-  assert.equal(fastAction({ ...result, majorDamageRisk: 0.349 }, 0.35, true), 'continue');
+  assert.equal(fastAction({ ...result, majorDamageRisk: 0.349 }, 0.35, true), 'slow_down');
+  for (const adjacentLaneClear of [0, 0.9]) {
+    const lowRisk = { ...result, majorDamageRisk: 0.05, adjacentLaneClear };
+    assert.equal(fastAction(lowRisk, 0.35, true), 'slow_down');
+    assert.equal(fastAction(lowRisk, 0.35, false), 'continue');
+  }
   const refused = parseFastAnswers({ ...answers, major_damage_risk: { type: 'refusal' } });
   assert.equal(refused.majorDamageRisk, null);
   assert.equal(fastAction({ ...refused, latencyMs: 1 }, 0.35, true), 'brake');
@@ -24,6 +29,7 @@ test('answer variants are narrowed; unknown is not false and the threshold bound
   assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'choice', probability: 0.1 } }));
   assert.throws(() => parseSlowAdvice({ action: 'swerve', rationale: 'Missing lane.' }));
   assert.throws(() => parseSlowAdvice({ action: 'continue', rationale: '' }));
+  assert.throws(() => parseSlowAdvice({ action: 'slow_down', rationale: 'Fast-only action.' }));
 });
 
 test('recorded replay requires no network and preserves actual answers and timing', async (context) => {
@@ -102,6 +108,7 @@ test('recorded temperature rehearsals refuse both rules in ice and release the b
     const simulation = new Simulation(loadConfig({ STUB: '1' }), models, () => Date.now());
     context.after(() => simulation.dispose());
     simulation.reset();
+    simulation.setSpeed(90);
     simulation.setTemperature(scenario.temperature);
     simulation.setStalenessLimit(scenario.staleness);
     simulation.start();

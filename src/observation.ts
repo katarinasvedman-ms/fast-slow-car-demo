@@ -14,12 +14,22 @@ export function observeScene(world: WorldState, variant: HazardVariant): SceneVi
     contact: senseContact(world),
     contactDescription: world.hazardActive ? contactDescription : 'No active sensor contact.',
     roadSurface: world.roadSurface,
+    followingVehicle: world.followingVehicle ? {
+      lane: world.followingVehicle.lane,
+      distanceBehindM: world.followingVehicle.distanceBehindM,
+      speedKmh: world.followingVehicle.speedKmh,
+      closingSpeedKmh: (world.followingVehicle.speedKmh - world.speedKmh) *
+        (world.followingVehicle.distanceBehindM >= 0 ? 1 : -1),
+    } : null,
     lanes: ([1, 2, 3] as const).map((lane) => {
       const blocked = world.adjacentLanesBlocked.includes(lane);
+      const follower = world.followingVehicle?.lane === lane ? world.followingVehicle : null;
       return {
         lane,
-        vehicleBehindM: blocked ? world.adjacentVehicleDistanceBehindM : null,
-        clearAheadM: blocked ? null : world.clearLaneDistanceM,
+        vehicleBehindM: follower ? follower.distanceBehindM >= 0 ? follower.distanceBehindM : null
+          : blocked ? world.adjacentVehicleDistanceBehindM : null,
+        ...(follower && follower.distanceBehindM < 0 ? { vehicleAheadM: -follower.distanceBehindM } : {}),
+        clearAheadM: blocked || follower ? null : world.clearLaneDistanceM,
       };
     }),
   };
@@ -29,13 +39,23 @@ export function buildObservation(world: WorldState, variant: HazardVariant): str
   const scene = observeScene(world, variant);
   if (!scene.contact) throw new Error('Cannot capture a model observation without an active sensor contact.');
   const laneObservations = scene.lanes
-    .filter(({ lane }) => lane !== world.carLane)
-    .map(({ lane, vehicleBehindM, clearAheadM }) => `Lane ${lane}: ${vehicleBehindM !== null
-      ? `vehicle detected ${vehicleBehindM} m behind` : `clear to ${clearAheadM} m`}.`);
+    .map(({ lane, vehicleBehindM, vehicleAheadM, clearAheadM }) => `Lane ${lane}: ${vehicleAheadM !== undefined
+      ? `vehicle detected ${Math.round(vehicleAheadM)} m ahead` : vehicleBehindM !== null
+        ? `vehicle detected ${Math.round(vehicleBehindM)} m behind` : `clear to ${clearAheadM} m`}.`);
+  const following = scene.followingVehicle;
   return [
     `Thermal and radar contact ahead in lane ${scene.contact.lane}, range ${Math.round(scene.contact.rangeM)} m, closing.`,
     scene.contactDescription,
+    `Ego vehicle occupies lane ${world.carLane}.`,
+    world.laneChange
+      ? `Lane change from lane ${world.laneChange.fromLane} to lane ${world.laneChange.toLane} in progress: ${world.laneChange.elapsedTicks}/${world.laneChange.durationTicks} ticks complete; both lanes remain occupied.`
+      : 'No lane change in progress.',
+    'Lane clearance describes other traffic; the forward sensor contact is reported separately.',
     ...laneObservations,
+    ...(following ? [
+      `Traffic radar: following vehicle in lane ${following.lane}, ${Math.round(Math.abs(following.distanceBehindM))} m ${following.distanceBehindM >= 0 ? 'behind' : 'ahead'}, ` +
+      `speed ${Math.round(following.speedKmh)} km/h, relative closing speed ${Math.round(following.closingSpeedKmh)} km/h (positive means the gap is shrinking).`,
+    ] : []),
     `Vehicle speed ${Math.round(world.speedKmh)} km/h. Road surface ${scene.roadSurface}.`,
   ].join('\n');
 }

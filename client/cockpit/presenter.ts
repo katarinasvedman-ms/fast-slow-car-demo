@@ -47,7 +47,6 @@ export function installPresenter(
     rail.hidden = presenting || collapsed;
     document.body.classList.toggle('presenting', presenting);
     document.body.classList.toggle('rail-hidden', rail.hidden);
-    element('scenario-caption').hidden = !rail.hidden;
     element('presenter').setAttribute('aria-pressed', String(presenting));
     railToggle.setAttribute('aria-expanded', String(!rail.hidden));
     railToggle.textContent = rail.hidden ? 'Controls [T]' : 'Controls [T] / Hide';

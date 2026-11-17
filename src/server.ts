@@ -75,7 +75,7 @@ export function createApp(simulation: Simulation): express.Express {
     else if (command === 'reset') simulation.reset();
     else if (command === 'stop') {
       if (simulation.snapshot().drive.kind !== 'free') {
-        response.status(409).json({ error: 'Stop is available in free drive; use Reset for staged moments.' });
+        response.status(409).json({ error: 'Stop is available in continuous driving; use Reset for staged moments.' });
         return;
       }
       simulation.stopDrive();
@@ -86,13 +86,24 @@ export function createApp(simulation: Simulation): express.Express {
         return;
       }
       if (body.value === 'free' && snapshot.backend === 'stub') {
-        response.status(409).json({ error: 'Free drive requires live mode; STUB supports staged moments only.' });
+        response.status(409).json({ error: 'Continuous driving requires live mode; STUB supports staged moments only.' });
         return;
       }
       simulation.setRunKind(body.value);
+    } else if (command === 'encounter' && 'value' in body && (body.value === 'standard' || body.value === 'rear_threat')) {
+      const snapshot = simulation.snapshot();
+      if (snapshot.started || snapshot.world.tick !== 0 || snapshot.drive.phase !== 'idle') {
+        response.status(409).json({ error: 'Reset before changing the encounter.' });
+        return;
+      }
+      if (body.value === 'rear_threat' && snapshot.backend === 'stub') {
+        response.status(409).json({ error: 'Rear threat requires live mode; recordings do not cover following traffic.' });
+        return;
+      }
+      simulation.setEncounter(body.value);
     } else if (command === 'duration' && 'value' in body && typeof body.value === 'number') {
-      if (!Number.isInteger(body.value) || body.value < 1 || body.value > 3600) {
-        response.status(400).json({ error: 'Drive duration must be an integer between 1 and 3600 seconds.' });
+      if (!Number.isInteger(body.value) || body.value < 0 || body.value > 3600) {
+        response.status(400).json({ error: 'Drive duration must be an integer between 0 and 3600 seconds (0 means until Stop).' });
         return;
       }
       simulation.setDriveDuration(body.value);

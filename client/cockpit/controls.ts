@@ -1,10 +1,11 @@
-import type { HazardVariant, Mode, RunKind, Snapshot } from '../../src/types.js';
+import type { Encounter, HazardVariant, Mode, RunKind, Snapshot } from '../../src/types.js';
 
 export type Control =
   | { command: 'start' | 'reset' | 'stop' }
   | { command: 'run'; value: RunKind }
   | { command: 'mode'; value: Mode }
   | { command: 'hazard'; value: HazardVariant }
+  | { command: 'encounter'; value: Encounter }
   | { command: 'speed' | 'temperature' | 'threshold' | 'staleness' | 'duration'; value: number };
 
 export type SendControl = (control: Control) => Promise<void>;
@@ -19,6 +20,10 @@ export const scenarios = [
     settings: { mode: 'async_gated', hazard: 'elk', speed: 90, threshold: 0.35, staleness: 3, temperature: -4 } },
   { id: 'allowed-swerve', name: 'Allowed swerve', watch: 'Watch: brake release.',
     settings: { mode: 'async_gated', hazard: 'elk', speed: 90, threshold: 0.35, staleness: 6, temperature: 12 } },
+  { id: 'rear-threat', name: 'Rear threat (live)', watch: 'Brake first; watch the following car close in. Advice is not guaranteed.',
+    settings: { mode: 'async_gated', hazard: 'elk', speed: 110, threshold: 0.35, staleness: 10, temperature: 12 } },
+  { id: 'continuous-rear-threat', name: 'Continuous rear threats (live)', watch: 'New hazards until Stop. Collision pauses; Start resumes.',
+    settings: { mode: 'async_gated', hazard: 'elk', speed: 110, threshold: 0.35, staleness: 10, temperature: 12 } },
 ] as const;
 
 export type ScenarioId = typeof scenarios[number]['id'];
@@ -32,22 +37,28 @@ export function scenarioFor(id: string): typeof scenarios[number] {
 export function scenarioCommands(id: ScenarioId): Control[] {
   const { settings } = scenarioFor(id);
   if (!settings) return [];
+  const continuous = id === 'continuous-rear-threat';
   return [
     { command: 'reset' },
-    { command: 'run', value: 'staged' },
+    { command: 'run', value: continuous ? 'free' : 'staged' },
     { command: 'mode', value: settings.mode },
-    { command: 'hazard', value: settings.hazard },
+    ...(!continuous ? [{ command: 'hazard', value: settings.hazard } as const] : []),
     { command: 'speed', value: settings.speed },
     { command: 'temperature', value: settings.temperature },
     { command: 'threshold', value: settings.threshold },
     { command: 'staleness', value: settings.staleness },
+    { command: 'encounter', value: id === 'rear-threat' || continuous ? 'rear_threat' : 'standard' },
+    ...(continuous ? [{ command: 'duration', value: 0 } as const] : []),
   ];
 }
 
 function matches(id: ScenarioId, snapshot: Snapshot): boolean {
   const { settings } = scenarioFor(id);
-  return settings !== null && snapshot.drive.kind === 'staged' &&
-    snapshot.mode === settings.mode && snapshot.hazardVariant === settings.hazard &&
+  const continuous = id === 'continuous-rear-threat';
+  return settings !== null && snapshot.drive.kind === (continuous ? 'free' : 'staged') &&
+    snapshot.world.encounter === (id === 'rear-threat' || continuous ? 'rear_threat' : 'standard') &&
+    (!continuous || snapshot.drive.durationS === 0) &&
+    snapshot.mode === settings.mode && (continuous || snapshot.hazardVariant === settings.hazard) &&
     snapshot.world.selectedSpeedKmh === settings.speed && snapshot.threshold === settings.threshold &&
     snapshot.world.ambientTempC === settings.temperature && snapshot.settings.stalenessLimitTicks === settings.staleness;
 }

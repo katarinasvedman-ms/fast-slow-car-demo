@@ -28,6 +28,7 @@ export function hazardInPath(contact: SceneView['contact'], car: Pick<WorldView,
 }
 
 export function fastAction(result: FastResult, threshold: number, inPath: boolean): Action {
-  return inPath && (result.majorDamageRisk === null || result.adjacentLaneClear === null ||
-    result.majorDamageRisk >= threshold) ? 'brake' : 'continue';
+  if (!inPath) return 'continue';
+  return result.majorDamageRisk === null || result.adjacentLaneClear === null ||
+    result.majorDamageRisk >= threshold ? 'brake' : 'slow_down';
 }

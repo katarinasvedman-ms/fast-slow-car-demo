@@ -200,12 +200,12 @@ export class RoadScene {
     for (const lane of scene.lanes) {
       const car = this.traffic.get(lane.lane);
       if (!car) continue;
-      car.visible = lane.vehicleBehindM !== null;
-      car.position.set((lane.lane - 2) * 3.6, 0.55, lane.vehicleBehindM ?? 0);
+      car.visible = lane.vehicleBehindM !== null || lane.vehicleAheadM !== undefined;
+      car.position.set((lane.lane - 2) * 3.6, 0.55, lane.vehicleBehindM ?? -(lane.vehicleAheadM ?? 0));
     }
     const position = contactPosition(view);
     this.contact.visible = position !== null;
-    this.brakeGlow.visible = world.braking;
+    this.brakeGlow.visible = world.braking || world.slowing;
     if (position) this.contact.position.set(position.x, 0.7, position.z);
     if (view.identity !== null && this.animalIdentity !== view.identity) {
       if (this.animal && this.animalMaterial) {

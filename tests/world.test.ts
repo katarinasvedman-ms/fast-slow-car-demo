@@ -11,7 +11,7 @@ test('gradual braking integrates distance, preserves braking on speed changes, a
   const config = loadConfig({ TICK_MS: '600', TICK_BUDGET_MS: '550', BRAKE_DECEL_MPS2: '2' });
   let world = applyAction(createWorld(config), 'brake');
   const first = advanceWorld(world, config);
-  assert.ok(Math.abs(first.hazard.distanceM - (500 - 25 * 0.6 + 0.5 * 2 * 0.6 ** 2)) < 1e-9);
+  assert.ok(Math.abs(first.hazard.distanceM - (500 - world.speedKmh / 3.6 * 0.6 + 0.5 * 2 * 0.6 ** 2)) < 1e-9);
   assert.ok(first.speedKmh < world.speedKmh);
   world = setWorldSpeed(first, 130);
   assert.equal(world.speedKmh, first.speedKmh);
@@ -29,12 +29,61 @@ test('gradual braking integrates distance, preserves braking on speed changes, a
   assert.equal(applyAction(collision, 'swerve', 3), collision);
 });
 
+test('gentle slowing integrates a capped slowdown without panic braking, stopping or increasing an already lower speed', () => {
+  const config = loadConfig({ BRAKE_DECEL_MPS2: '9' });
+  let world = applyAction(createWorld(config, 110, 'small_animal', 12, 'rear_threat'), 'slow_down');
+  world = advanceWorld(world, config);
+  assert.ok(Math.abs(world.speedKmh - 105.68) < 1e-8);
+  assert.ok(Math.abs(world.distanceTravelledM - (110 / 3.6 * 0.4 - 0.5 * 3 * 0.4 ** 2)) < 1e-8);
+  assert.equal(world.braking, false);
+  assert.equal(world.slowing, true);
+  assert.ok(world.followingVehicle!.reactionRemainingS! < 1.6);
+  for (let i = 0; i < 20; i++) world = advanceWorld(world, config);
+  assert.ok(Math.abs(world.speedKmh - 50) < 1e-8);
+  assert.equal(world.outcome, 'running');
+  const floor = advanceWorld(world, config);
+  assert.ok(Math.abs(floor.distanceTravelledM - world.distanceTravelledM - 50 / 3.6 * 0.4) < 1e-8);
+  const nearFloor = advanceWorld(applyAction(createWorld(config, 51), 'slow_down'), config);
+  const expectedTravel = 50 / 3.6 * 0.4 + (1 / 3.6) ** 2 / (2 * 3);
+  assert.ok(Math.abs(nearFloor.distanceTravelledM - expectedTravel) < 1e-8);
+  assert.ok(Math.abs(nearFloor.speedKmh - 50) < 1e-8);
+  const belowFloor = advanceWorld(applyAction({
+    ...createWorld(config, 50, 'small_animal', 12, 'rear_threat'), speedKmh: 40,
+  }, 'slow_down'), config);
+  assert.equal(belowFloor.speedKmh, 40);
+  assert.equal(belowFloor.outcome, 'running');
+  assert.equal(belowFloor.followingVehicle?.reactionRemainingS, null);
+  const raised = setWorldSpeed(floor, 130);
+  assert.equal(raised.slowing, true);
+  assert.ok(Math.abs(advanceWorld(raised, config).speedKmh - 50) < 1e-8);
+});
+
+test('emergency braking overrides gentle slowing, and an allowed turn releases it without jumping speed or cancelling turn progress', () => {
+  const config = loadConfig({ BRAKE_DECEL_MPS2: '9' });
+  const gentle = applyAction(createWorld(config), 'slow_down');
+  const emergency = advanceWorld(applyAction(gentle, 'brake'), config);
+  assert.ok(Math.abs(emergency.speedKmh - 97.04) < 1e-8);
+  assert.equal(emergency.braking, true);
+  assert.equal(emergency.slowing, false);
+  const turning = applyAction(gentle, 'swerve', 3);
+  assert.equal(turning.slowing, false);
+  assert.equal(turning.speedKmh, gentle.speedKmh);
+  const revised = advanceWorld(applyAction(turning, 'slow_down'), config);
+  assert.equal(revised.laneChange?.elapsedTicks, 1);
+  const released = applyAction({ ...revised, hazardActive: false, laneChange: null }, 'continue');
+  assert.equal(released.slowing, false);
+  assert.equal(released.speedKmh, revised.speedKmh);
+  assert.ok(Math.abs(advanceWorld(released, config).speedKmh - released.speedKmh - 2.88) < 1e-8);
+});
+
 test('ground truth resolves collision, safe passage, and blocked swerves without ending early', () => {
   const config = loadConfig({ INITIAL_HAZARD_DISTANCE_M: '11' });
   const elk = createWorld(config);
   assert.equal(applyAction(elk, 'continue').outcome, 'running');
   assert.equal(advanceWorld(advanceWorld(elk, config), config).outcome, 'collision');
-  assert.equal(advanceWorld(advanceWorld(createWorld(config, 90, 'small_animal'), config), config).outcome, 'continued');
+  assert.equal(advanceWorld(advanceWorld(createWorld(config, 90, 'small_animal'), config), config).outcome, 'collision');
+  const squirrelElsewhere = { ...createWorld(config, 90, 'small_animal'), carLane: 3 as const };
+  assert.equal(advanceWorld(advanceWorld(squirrelElsewhere, config), config).outcome, 'swerved');
   const swerving = applyAction(elk, 'swerve', 3);
   assert.equal(swerving.outcome, 'running');
   assert.equal(swerving.carLane, 2);
@@ -67,6 +116,24 @@ test('sensor path includes both occupied lanes during a turn, and fast decisions
   ]) {
     assert.equal(fastAction(result, 0.35, true), 'brake');
     assert.equal(fastAction(result, 0.35, false), 'continue');
+  }
+});
+
+test('model observations identify the ego lane and retain all three lane readings through a completed turn', () => {
+  const config = loadConfig({});
+  const start = createWorld(config);
+  let world = start;
+  for (const phase of ['before', 'turning', 'after'] as const) {
+    if (phase === 'turning') world = advanceWorld(applyAction(start, 'swerve', 3), config);
+    if (phase === 'after') for (let i = 0; i < 2; i++) world = advanceWorld(world, config);
+    const text = buildObservation(world, 'elk');
+    assert.match(text, new RegExp(`Ego vehicle occupies lane ${phase === 'after' ? 3 : 2}\\.`));
+    for (const lane of [1, 2, 3]) assert.match(text, new RegExp(`Lane ${lane}:`));
+    assert.match(text, /Lane 3: clear to 100 m\./);
+    if (phase === 'turning') {
+      assert.match(text, /Lane change from lane 2 to lane 3 in progress: 1\/3 ticks complete; both lanes remain occupied/);
+    } else assert.match(text, /No lane change in progress/);
+    assert.doesNotMatch(text, /elk|small_animal|identity|"kind"|temperature|grip|adjacentLanesBlocked/i);
   }
 });
 
@@ -157,7 +224,7 @@ test('both models still receive only sensor text when the moving world reveals a
   for (const model of ['fast', 'slow'] as const) {
     const calls = inputs.filter((input) => input.model === model);
     assert.ok(calls.some((input) => /range 151 m/.test(input.text)));
-    assert.ok(calls.some((input) => /range 141 m/.test(input.text)));
+    assert.ok(calls.some((input) => /range 139 m/.test(input.text)));
     for (const { text } of calls) {
       assert.match(text, /Thermal and radar contact/);
       assert.doesNotMatch(text, /elk|small_animal|identity|"kind"|image/i);
@@ -229,12 +296,12 @@ test('the model-input snapshot retains the exact sent text through within-tick c
   await flush();
   simulation.setSpeed(60);
   assert.equal(simulation.snapshot().observation, sent[0]);
-  assert.match(simulation.snapshot().observation, /Vehicle speed 90 km\/h/);
+  assert.match(simulation.snapshot().observation, /Vehicle speed 110 km\/h/);
   assert.equal(simulation.snapshot().observationTick, 0);
   context.mock.timers.tick(400);
   await flush();
   assert.equal(simulation.snapshot().observation, sent[1]);
-  assert.match(simulation.snapshot().observation, /Vehicle speed 60 km\/h/);
+  assert.match(simulation.snapshot().observation, new RegExp(`Vehicle speed ${Math.round(simulation.snapshot().world.speedKmh)} km/h`));
   assert.equal(simulation.snapshot().observationTick, 1);
   assert.deepEqual(simulation.snapshot().scene.lanes[0], { lane: 1, vehicleBehindM: 20, clearAheadM: null });
   simulation.reset();
@@ -247,18 +314,21 @@ test('fixed clock advances independently and reset stops old ticks', async (cont
   simulation.setMode('fast_only');
   context.after(() => simulation.dispose());
   const before = simulation.snapshot().world.distanceM;
+  assert.equal(simulation.snapshot().world.selectedSpeedKmh, 110);
   simulation.start();
   simulation.start();
   await flush();
   for (let i = 0; i < 3; i += 1) { context.mock.timers.tick(400); await flush(); }
   assert.equal(simulation.snapshot().world.tick, 3);
   assert.ok(simulation.snapshot().world.distanceM < before);
+  const speedBeforeEdit = simulation.snapshot().world.speedKmh;
   simulation.setSpeed(130);
   assert.equal(simulation.snapshot().world.tick, 3);
-  assert.equal(simulation.snapshot().world.speedKmh, 90);
+  assert.equal(simulation.snapshot().world.speedKmh, speedBeforeEdit);
   assert.equal(simulation.snapshot().world.selectedSpeedKmh, 130);
   simulation.reset();
   context.mock.timers.tick(800);
   assert.equal(simulation.snapshot().world.tick, 0);
   assert.equal(simulation.snapshot().started, false);
+  assert.equal(simulation.snapshot().world.selectedSpeedKmh, 130);
 });

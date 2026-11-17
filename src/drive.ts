@@ -1,5 +1,23 @@
 import type { DriveView, HazardVariant, Lane, WorldState } from './types.js';
 
+function randomSample(seed: number): { seed: number; value: number } {
+  seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  return { seed, value: seed / 0x100000000 };
+}
+
+export function nextGap(seed: number, baseSeconds: number): { seed: number; seconds: number } {
+  const sample = randomSample(seed);
+  return { seed: sample.seed, seconds: baseSeconds * (0.85 + 0.3 * sample.value) };
+}
+
+export function nextSpawnDistance(seed: number): { seed: number; distanceM: number } {
+  const sample = randomSample(seed);
+  return {
+    seed: sample.seed,
+    distanceM: 35 + 30 * sample.value,
+  };
+}
+
 export function emptyDrive(seed: number, durationS: number, kind: DriveView['kind'] = 'staged'): DriveView {
   return {
     kind, phase: 'idle', episodeId: null, seed, durationS, elapsedS: 0,
@@ -16,8 +34,9 @@ export function nextHazard(seed: number, lane: Lane): {
   seed: number; variant: HazardVariant; kind: WorldState['hazard']['kind']; blocked: Lane[];
 } {
   const random = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 0x100000000;
+    const sample = randomSample(seed);
+    seed = sample.seed;
+    return sample.value;
   };
   const choice = random();
   const variant = choice < 1 / 3 ? 'elk' : choice < 2 / 3 ? 'small_animal' : 'ambiguous';

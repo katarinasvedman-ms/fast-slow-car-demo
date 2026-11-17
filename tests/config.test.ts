@@ -9,7 +9,14 @@ test('config rejects invalid timing, physical values, and endpoint schemes', () 
     { TICK_MS: '1' },
     { TICK_BUDGET_MS: '' },
     { BRAKE_DECEL_MPS2: '0' },
+    { GENTLE_DECEL_MPS2: '0' },
+    { GENTLE_DECEL_MPS2: 'NaN' },
+    { GENTLE_SPEED_KMH: '0' },
+    { GENTLE_SPEED_KMH: '131' },
     { INITIAL_HAZARD_DISTANCE_M: '-1' },
+    { FOLLOWING_VEHICLE_DISTANCE_M: '0' },
+    { FOLLOWING_VEHICLE_DISTANCE_M: 'NaN' },
+    { FOLLOWING_VEHICLE_DISTANCE_M: '1001' },
     { STALENESS_LIMIT_TICKS: '1.5' },
     { SWERVE_SPEED_LIMIT_NORMAL: '131' },
     { SWERVE_SPEED_LIMIT_FROST: 'NaN' },
@@ -32,4 +39,5 @@ test('config rejects invalid timing, physical values, and endpoint schemes', () 
   assert.equal(config.tickMs, 600);
   assert.equal(config.brakeDecelMps2, 2);
   assert.equal(config.initialHazardDistanceM, 300);
+  assert.equal(loadConfig({ BRAKE_DECEL_MPS2: '1', GENTLE_DECEL_MPS2: '2' }).gentleDecelMps2, 1);
 });

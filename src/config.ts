@@ -9,12 +9,15 @@ export interface Config {
   frostRiskTempC: number;
   iceRiskTempC: number;
   brakeDecelMps2: number;
+  gentleDecelMps2: number;
+  gentleSpeedKmh: number;
   accelMps2: number;
   driveSeed: number;
   driveDurationS: number;
   driveGapS: number;
   driveDwellS: number;
   initialHazardDistanceM: number;
+  followingVehicleDistanceM: number;
   stub: boolean;
   stubSlowDelayTicks: number;
   foundryEndpoint: string | null;
@@ -73,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       throw new Error('FOUNDRY_ENDPOINT must be an HTTPS endpoint without credentials, query, or fragment.');
     }
   }
+  const brakeDecelMps2 = numberSetting(env, 'BRAKE_DECEL_MPS2', 1.5, 0.01, 100);
   return {
     port: numberSetting(env, 'PORT', 3000, 0, 65_535, true),
     tickMs,
@@ -83,13 +87,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     iceSwerveSpeedLimit: numberSetting(env, 'SWERVE_SPEED_LIMIT_ICE', DEFAULT_SWERVE_POLICY.iceSwerveSpeedLimit, 0, 130),
     frostRiskTempC,
     iceRiskTempC,
-    brakeDecelMps2: numberSetting(env, 'BRAKE_DECEL_MPS2', 1.5, 0.01, 100),
+    brakeDecelMps2,
+    gentleDecelMps2: Math.min(numberSetting(env, 'GENTLE_DECEL_MPS2', 3, 0.01, 100), brakeDecelMps2),
+    gentleSpeedKmh: numberSetting(env, 'GENTLE_SPEED_KMH', 50, 1, 130),
     accelMps2: numberSetting(env, 'ACCEL_MPS2', 2, 0.01, 100),
     driveSeed: numberSetting(env, 'DRIVE_SEED', 42, 0, 0xffffffff, true),
-    driveDurationS: numberSetting(env, 'DRIVE_DURATION_S', 120, 1, 3600, true),
-    driveGapS: numberSetting(env, 'DRIVE_GAP_S', 15, 0, 300),
+    driveDurationS: numberSetting(env, 'DRIVE_DURATION_S', 120, 0, 3600, true),
+    driveGapS: numberSetting(env, 'DRIVE_GAP_S', 3, 0, 300),
     driveDwellS: numberSetting(env, 'DRIVE_DWELL_S', 3, 0, 300),
     initialHazardDistanceM: numberSetting(env, 'INITIAL_HAZARD_DISTANCE_M', 500, 0.01, 100_000),
+    followingVehicleDistanceM: numberSetting(env, 'FOLLOWING_VEHICLE_DISTANCE_M', 80, 0.01, 1000),
     stub: env.STUB === '1',
     stubSlowDelayTicks: numberSetting(env, 'STUB_SLOW_DELAY_TICKS', 5, 0, 1000, true),
     foundryEndpoint,

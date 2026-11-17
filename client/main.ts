@@ -46,19 +46,24 @@ function render(snapshot: Snapshot): void {
     : `Car lane ${world.carLane}`;
   element('tick').textContent = `Tick ${world.tick}`;
   element('range').textContent = world.hazardActive ? `${world.distanceM.toFixed(0)} m` : 'No active contact';
-  element('outcome').textContent = snapshot.drive.kind === 'free' ? `${snapshot.drive.phase} / ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
-    : world.outcome + (world.braking && world.outcome === 'running' ? ' / braking' : '');
+  element('outcome').textContent = (snapshot.drive.kind === 'free' ? `${snapshot.drive.phase} / ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
+    : world.outcome + (world.collisionCause ? ` / ${world.collisionCause.replaceAll('_', ' ')}` : '')) +
+      (world.outcome === 'running' ? world.braking ? ' / braking' : world.slowing ? ' / gentle slowdown' : '' : '');
   element('observation').textContent = snapshot.observation;
   element('observation-stamp').textContent = snapshot.observationTick === null
     ? 'Preview only: no observation sent yet.'
     : `Exact per-tick input captured at tick ${snapshot.observationTick}, before actions or later control edits.` +
       (snapshot.observationTick !== world.tick ? ' No new input was sent this tick.' : '') +
       (snapshot.advice.observedAtTick !== null ? ` Slow reasoning captured tick ${snapshot.advice.observedAtTick}.` : '');
-  element('contact-description').textContent = `Thermal / radar: ${snapshot.scene.contactDescription}`;
+  const following = snapshot.scene.followingVehicle;
+  element('contact-description').textContent = `Thermal / radar: ${snapshot.scene.contactDescription}` +
+    (following ? ` Following vehicle: lane ${following.lane}, ${Math.abs(following.distanceBehindM).toFixed(0)} m ${following.distanceBehindM >= 0 ? 'behind' : 'ahead'}, ` +
+      `${following.closingSpeedKmh.toFixed(0)} km/h relative closing speed.` : '');
   element('road-surface').textContent = `ROAD: ${snapshot.scene.roadSurface.toUpperCase()}`;
   element('timing').textContent = `${snapshot.settings.tickMs} ms fixed clock`;
   element('physics').textContent =
-    `Braking ${snapshot.settings.brakeDecelMps2} m/s² / acceleration ${snapshot.settings.accelMps2} m/s² / initial range ${snapshot.settings.initialHazardDistanceM} m`;
+    `Braking ${snapshot.settings.brakeDecelMps2} m/s² / gentle slowdown ${snapshot.settings.gentleDecelMps2} m/s² toward ${snapshot.settings.gentleSpeedKmh} km/h / ` +
+    `acceleration ${snapshot.settings.accelMps2} m/s² / initial range ${snapshot.settings.initialHazardDistanceM} m`;
   element('backend').textContent = snapshot.backend === 'stub' ? 'STUB / recorded / no network' : 'LIVE / Foundry / Entra';
   element('model-name').textContent = snapshot.modelName;
   element('fast-status').textContent = snapshot.fast.status;
@@ -94,21 +99,26 @@ function render(snapshot: Snapshot): void {
   const previousAdvice = advice.data !== null && (advice.status !== 'ready' ||
     (snapshot.drive.kind === 'free' && snapshot.drive.phase !== 'episode'));
   const assessmentLabel = previousAdvice ? 'Previous assessment: ' : '';
-  const age = advice.observedAtTick === null ? 0 : world.tick - advice.observedAtTick;
+  const cancelled = advice.cancellation;
+  const cancelledLabel = cancelled === null ? '' : cancelled.reason === 'collision' ? 'Cancelled at collision'
+    : cancelled.reason === 'episode_ended' ? 'Cancelled at episode end'
+      : cancelled.reason === 'duration' ? 'Cancelled at time limit' : 'Cancelled by Stop';
+  const age = advice.observedAtTick === null ? 0 : (cancelled?.atTick ?? world.tick) - advice.observedAtTick;
   element('advice-age').textContent = advice.observedAtTick === null ? 'No observation yet'
-    : `Current observation age: ${age} ticks / limit ${snapshot.settings.stalenessLimitTicks}`;
+    : `${cancelled ? 'Observation age at cancellation' : 'Current observation age'}: ${age} ticks / limit ${snapshot.settings.stalenessLimitTicks}`;
   element('advice-age').className = age > snapshot.settings.stalenessLimitTicks
     ? 'refused' : age >= Math.max(0, snapshot.settings.stalenessLimitTicks - 1) ? 'warning' : 'allowed';
   element('slow-model').textContent = snapshot.slowModelName;
-  element('advice-title').textContent = advice.status === 'thinking'
+  element('advice-title').textContent = cancelled ? cancelledLabel : advice.status === 'thinking'
     ? `${previousAdvice ? 'Reassessing' : 'Thinking'}... ${age} ticks`
     : advice.status === 'error' ? 'Advice failed'
       : advice.data ? `${advice.data.action.toUpperCase()}${advice.data.targetLane ? ` to lane ${advice.data.targetLane}` : ''}`
         : snapshot.mode === 'fast_only' ? 'Disabled in fast-only mode' : 'Waiting for start';
-  element('rationale').textContent = advice.data ? `${assessmentLabel}${advice.data.rationale}` : '';
+  element('rationale').textContent = advice.data ? `${assessmentLabel}${advice.data.rationale}`
+    : cancelled ? 'Reasoning was still pending when cancelled. No recommendation arrived or was applied.' : '';
   element('advice-stamps').textContent = advice.data
     ? `${assessmentLabel}Observed tick ${advice.data.observedAtTick} / arrived tick ${advice.data.arrivedAtTick} / model ${advice.data.latencyMs.toFixed(0)} ms`
-    : '';
+    : cancelled ? `Observed tick ${advice.observedAtTick} / cancelled tick ${cancelled.atTick} / waited ${age} ticks (${(age * snapshot.settings.tickMs / 1000).toFixed(1)} s)` : '';
   element('advice-error').textContent = advice.error ?? '';
   element('advice-application').textContent = advice.application ? `${assessmentLabel}${advice.application}` : '';
   element('advice-reasons').textContent = advice.gate && !advice.gate.allowed
@@ -151,16 +161,18 @@ function render(snapshot: Snapshot): void {
   element('contact-distance').textContent = `${Math.round(world.distanceM)} m ahead`;
   for (const lane of snapshot.scene.lanes) {
     const x = 110 + (lane.lane - 1) * 160;
-    const blocked = lane.vehicleBehindM !== null;
+    const blocked = lane.vehicleBehindM !== null || lane.vehicleAheadM !== undefined;
     const status = element(`lane-${lane.lane}-status`);
     status.textContent = lane.lane === world.carLane
       ? blocked ? 'EGO / BLOCKED' : 'EGO LANE' : blocked ? 'BLOCKED' : 'CLEAR';
     status.setAttribute('fill', blocked ? '#f87171' : lane.lane === world.carLane ? '#dedede' : '#4ade80');
     const vehicle = element(`vehicle-${lane.lane}`);
     vehicle.setAttribute('visibility', blocked ? 'visible' : 'hidden');
-    vehicle.setAttribute('transform', `translate(${x}, ${roadY(-(lane.vehicleBehindM ?? 0))})`);
-    vehicle.setAttribute('aria-label', `Vehicle in lane ${lane.lane}, ${lane.vehicleBehindM ?? 0} m behind`);
-    element(`vehicle-${lane.lane}-distance`).textContent = `${lane.vehicleBehindM ?? 0} m behind`;
+    const vehicleDistance = lane.vehicleAheadM ?? -(lane.vehicleBehindM ?? 0);
+    const vehicleLabel = `${Math.abs(vehicleDistance).toFixed(0)} m ${lane.vehicleAheadM !== undefined ? 'ahead' : 'behind'}`;
+    vehicle.setAttribute('transform', `translate(${x}, ${roadY(vehicleDistance)})`);
+    vehicle.setAttribute('aria-label', `Vehicle in lane ${lane.lane}, ${vehicleLabel}`);
+    element(`vehicle-${lane.lane}-distance`).textContent = vehicleLabel;
     const clearance = element(`lane-${lane.lane}-clearance`);
     clearance.setAttribute('visibility', lane.lane !== world.carLane && !blocked ? 'visible' : 'hidden');
     const top = roadY(lane.clearAheadM ?? 0);
@@ -197,7 +209,7 @@ function render(snapshot: Snapshot): void {
     row.className = record.decision.allowed ? 'allowed' : 'refused';
     const title = document.createElement('strong');
     title.textContent =
-      `#${record.atTick} ${record.phase}: ${record.envelope.source} ${record.envelope.action} / ${record.decision.allowed ? 'allowed' : 'refused'}` +
+      `#${record.atTick} ${record.phase}: ${record.envelope.source} ${record.envelope.action.replaceAll('_', ' ')} / ${record.decision.allowed ? 'allowed' : 'refused'}` +
       (record.supersedes ? ` / supersedes #${record.supersedes.atTick}` : '');
     row.append(title);
     if (!record.decision.allowed) {
@@ -245,13 +257,15 @@ async function chooseRun(value: string): Promise<void> {
   if (latestSnapshot) render(latestSnapshot);
   try {
     if (!await control('reset') || !await control('run', value)) return;
-    if (value === 'free') await control('mode', 'async_gated');
+    if (value === 'free') {
+      if (!await control('mode', 'async_gated') || !await control('encounter', 'rear_threat')) return;
+      await control('duration', 0);
+    }
   } finally {
     choosingRun = false;
     if (latestSnapshot) render(latestSnapshot);
   }
 }
-element('free-drive').addEventListener('click', () => { void chooseRun('free'); });
 element('run').addEventListener('change', (event) => {
   if (event.target instanceof HTMLSelectElement) void chooseRun(event.target.value);
 });

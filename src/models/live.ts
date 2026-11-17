@@ -95,8 +95,17 @@ export function createLiveModels(config: Config) {
           store: false,
           instructions:
             'This is a synthetic toy simulation, not real driving advice. You are an advisory route planner, not the policy authority. ' +
-            'Recommend one action from the sensor observation. When an obstacle may be large and an adjacent lane is observed clear, ' +
-            'prefer moving to that clear adjacent lane. A separate deterministic gate may refuse your recommendation. ' +
+            'Recommend one action from the sensor observation. Prioritize avoiding injury and serious collisions; avoiding animal contact is a secondary goal. ' +
+            'When a forward contact is in the occupied path and an observed clear adjacent lane offers a safer route, prefer moving to that lane, ' +
+            'including for low-mass contacts. Low expected impact is not by itself a reason to strike a contact when a safer observed route exists. ' +
+            'For a low-mass contact with no safer observed route, prefer continue rather than an unsafe swerve or hard braking that risks a worse collision. ' +
+            'For a potentially large or uncertain contact with no safer adjacent route, prefer brake. ' +
+            'A separate deterministic gate may refuse your recommendation. ' +
+            'Use the stated ego lane, all lane observations and lane-change progress. An ego lane is observed, not an unknown escape lane. ' +
+            'Continue means stay on course, including completing an existing turn; do not propose a swerve to the current lane or restart an ongoing turn. ' +
+            'If the contact is outside both occupied lanes and no other observed conflict requires a maneuver, prefer continue. ' +
+            'When following-vehicle radar is present, consider its range and relative closing speed alongside the forward contact and adjacent traffic. ' +
+            'A following vehicle alone does not make a swerve safer: never choose an occupied or unobserved lane to avoid a low-impact contact. ' +
             'Do not assume hidden facts. Give a short rationale of one or two sentences.',
           input: observation,
           reasoning: { effort: 'medium' },

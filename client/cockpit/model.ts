@@ -34,7 +34,7 @@ export function contactPosition(view: CockpitView, shownDistance = view.travelle
 
 export function mapSnapshot(snapshot: Snapshot): CockpitView {
   const { world, advice, settings } = snapshot;
-  const age = advice.observedAtTick === null ? null : Math.max(0, world.tick - advice.observedAtTick);
+  const age = advice.observedAtTick === null ? null : Math.max(0, (advice.cancellation?.atTick ?? world.tick) - advice.observedAtTick);
   const decision = advice.gate;
   const refused = (reason: 'stale_advice' | 'prohibited_action') =>
     decision !== null && !decision.allowed && decision.reasons.some((item) => item.reason === reason);
@@ -128,7 +128,7 @@ function decision(value: unknown): value is GateDecision {
 }
 
 function envelope(value: unknown): boolean {
-  return object(value) && ['brake', 'continue', 'swerve'].includes(String(value.action)) &&
+  return object(value) && ['brake', 'slow_down', 'continue', 'swerve'].includes(String(value.action)) &&
     ['fast', 'slow'].includes(String(value.source)) && lane(value.fromLane) &&
     (value.episodeId === undefined || episodeId(value.episodeId)) &&
     (value.toLane === undefined || lane(value.toLane)) &&
@@ -152,7 +152,10 @@ function validSnapshot(value: unknown): value is Snapshot {
   const change = world.laneChange;
   const data = advice.data;
   const score = drive.score;
+  const following = scene.followingVehicle;
   return ['live', 'stub'].includes(String(value.backend)) &&
+    ['standard', 'rear_threat'].includes(String(world.encounter)) &&
+    (world.collisionCause === null || ['front_contact', 'rear_vehicle', 'front_vehicle', 'lane_vehicle'].includes(String(world.collisionCause))) &&
     ['fast_only', 'blocking', 'async_gated'].includes(String(value.mode)) &&
     (value.hazardVariant === null || ['elk', 'small_animal', 'ambiguous'].includes(String(value.hazardVariant))) &&
     typeof value.started === 'boolean' && finite(value.threshold) &&
@@ -160,13 +163,13 @@ function validSnapshot(value: unknown): value is Snapshot {
     nullableNumber(value.observationTick) &&
     ['tick', 'speedKmh', 'selectedSpeedKmh', 'ambientTempC', 'distanceM', 'distanceTravelledM'].every((key) => finite(world[key])) &&
     typeof world.hazardActive === 'boolean' &&
-    lane(world.carLane) && lane(world.hazardLane) && typeof world.braking === 'boolean' &&
+    lane(world.carLane) && lane(world.hazardLane) && typeof world.braking === 'boolean' && typeof world.slowing === 'boolean' &&
     ['running', 'braked', 'swerved', 'continued', 'collision'].includes(String(world.outcome)) &&
     (world.identity === null || ['elk', 'small_animal'].includes(String(world.identity))) &&
     (change === null || (object(change) && lane(change.fromLane) && lane(change.toLane) &&
       finite(change.elapsedTicks) && finite(change.durationTicks) && change.durationTicks > 0 &&
       finite(change.startedAtTick))) &&
-    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'accelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
+    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'gentleDecelMps2', 'gentleSpeedKmh', 'accelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
       .every((key) => finite(settings[key])) &&
     finite(settings.tickMs) && settings.tickMs > 0 &&
     finite(settings.stalenessLimitTicks) && settings.stalenessLimitTicks >= 0 &&
@@ -176,7 +179,11 @@ function validSnapshot(value: unknown): value is Snapshot {
     finite(fast.latencyMs) && finite(fast.missedDeadlines) &&
     (fast.error === null || typeof fast.error === 'string') &&
     Array.isArray(fast.deadlineTicks) && fast.deadlineTicks.every(finite) &&
-    ['idle', 'thinking', 'ready', 'error'].includes(String(advice.status)) &&
+    ['idle', 'thinking', 'ready', 'error', 'cancelled'].includes(String(advice.status)) &&
+    ((advice.status === 'cancelled') === (advice.cancellation !== null)) &&
+    (advice.cancellation === null || (object(advice.cancellation) && finite(advice.cancellation.atTick) &&
+      finite(advice.observedAtTick) && advice.cancellation.atTick >= advice.observedAtTick &&
+      ['collision', 'episode_ended', 'stopped', 'duration'].includes(String(advice.cancellation.reason)))) &&
     nullableNumber(advice.observedAtTick) && (advice.gate === null || decision(advice.gate)) &&
     (advice.application === null || typeof advice.application === 'string') &&
     (advice.error === null || typeof advice.error === 'string') &&
@@ -186,6 +193,8 @@ function validSnapshot(value: unknown): value is Snapshot {
       ['observedAtTick', 'arrivedAtTick', 'latencyMs'].every((key) => finite(data[key])))) &&
     (scene.contact === null || (object(scene.contact) && lane(scene.contact.lane) && finite(scene.contact.rangeM))) &&
     typeof scene.contactDescription === 'string' && scene.roadSurface === 'dry' &&
+    (following === null || (object(following) && lane(following.lane) &&
+      ['distanceBehindM', 'speedKmh', 'closingSpeedKmh'].every((key) => finite(following[key])))) &&
     ['staged', 'free'].includes(String(drive.kind)) &&
     ['idle', 'episode', 'dwell', 'gap', 'collision', 'finished'].includes(String(drive.phase)) &&
     (drive.episodeId === null || episodeId(drive.episodeId)) &&
@@ -194,7 +203,8 @@ function validSnapshot(value: unknown): value is Snapshot {
     object(score) && ['hazardsFaced', 'avoidedByBraking', 'avoidedBySwerving', 'slowAllowed', 'slowRefused',
       'staleAdvice', 'prohibitedAction', 'collisions', 'deadlineMisses'].every((key) => finite(score[key])) &&
     Array.isArray(scene.lanes) && scene.lanes.length === 3 && scene.lanes.every((item: unknown) =>
-      object(item) && lane(item.lane) && nullableNumber(item.vehicleBehindM) && nullableNumber(item.clearAheadM)) &&
+      object(item) && lane(item.lane) && nullableNumber(item.vehicleBehindM) && nullableNumber(item.clearAheadM) &&
+      (item.vehicleAheadM === undefined || finite(item.vehicleAheadM))) &&
     Array.isArray(value.gate) && value.gate.every((record: unknown) =>
       object(record) && finite(record.atTick) && ['proposal', 'application'].includes(String(record.phase)) &&
       envelope(record.envelope) && decision(record.decision) &&

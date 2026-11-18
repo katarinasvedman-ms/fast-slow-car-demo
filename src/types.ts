@@ -84,6 +84,16 @@ export interface AppliedAction {
   envelope: ActionEnvelope;
 }
 
+export interface ExecutionEvent {
+  tick: number;
+  episodeId: number | null;
+  source: 'fast' | 'slow';
+  phase: 'proposed' | 'applied' | 'refused' | 'not_applied' | 'completed' | 'cancelled';
+  action?: Action;
+  toLane?: Lane;
+  detail: string;
+}
+
 export interface LaneChange {
   fromLane: Lane;
   toLane: Lane;
@@ -186,6 +196,8 @@ export interface Snapshot {
     brakeDecelMps2: number;
     gentleDecelMps2: number;
     gentleSpeedKmh: number;
+    fastSwerveSpeedLimit: number;
+    fastLaneClearThreshold: number;
     accelMps2: number;
     stalenessLimitTicks: number;
     swerveSpeedLimit: number;
@@ -194,6 +206,7 @@ export interface Snapshot {
   log: TickEntry[];
   gate: GateRecord[];
   actionStatus: string;
+  execution: ExecutionEvent[];
   fast: FastResult & {
     status: 'idle' | 'pending' | 'ready' | 'deadline' | 'error';
     observedAtTick: number | null;

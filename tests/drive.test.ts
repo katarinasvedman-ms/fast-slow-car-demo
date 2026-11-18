@@ -386,10 +386,10 @@ test('collision retains the unanswered assessment, freezes its wait age, and rej
   assert.equal(simulation.snapshot().advice.cancellation, null);
 });
 
-test('duration zero runs beyond the former limit until Stop, and Reset preserves the continuous setup', async (context) => {
+test('continuous driving defaults to running beyond the former limit until Stop, and Reset preserves the setup', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   let calls = 0;
-  const simulation = new Simulation(loadConfig({ DRIVE_DURATION_S: '0', DRIVE_GAP_S: '300' }), fakeModels({
+  const simulation = new Simulation(loadConfig({ DRIVE_GAP_S: '300' }), fakeModels({
     fast: { name: 'Mock unused', async decide() { calls++; return brake; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
@@ -398,7 +398,6 @@ test('duration zero runs beyond the former limit until Stop, and Reset preserves
   simulation.start();
   context.mock.timers.tick(125_000);
   await flush();
-  simulation.setDriveDuration(0);
   const running = simulation.snapshot();
   assert.equal(running.started, true);
   assert.ok(running.drive.elapsedS > 120);
@@ -507,7 +506,7 @@ test('continuous rear impacts pause once, cancel old advice, and resume with the
   const simulation = new Simulation(loadConfig({
     BRAKE_DECEL_MPS2: '9', INITIAL_HAZARD_DISTANCE_M: '80',
   }), fakeModels({
-    fast: { name: 'Mock brake', async decide() { return brake; } },
+    fast: { name: 'Mock brake / no confident fast escape', async decide() { return { ...brake, adjacentLaneClear: 0.8 }; } },
     slow: { name: 'Mock late advice', advise(_input, signal) { signals.push(signal); return pending.promise; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
@@ -555,7 +554,7 @@ test('a rear-threat stop clears only the animal after dwell and retains the stop
   const simulation = new Simulation(loadConfig({
     BRAKE_DECEL_MPS2: '9', INITIAL_HAZARD_DISTANCE_M: '80', DRIVE_GAP_S: '0', DRIVE_DWELL_S: '0.8',
   }), fakeModels({
-    fast: { name: 'Mock brake', async decide() { calls++; return brake; } },
+    fast: { name: 'Mock brake / no confident fast escape', async decide() { calls++; return { ...brake, adjacentLaneClear: 0.8 }; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
   simulation.setMode('fast_only');

@@ -11,6 +11,23 @@ export function canStart(snapshot: Snapshot): boolean {
     (snapshot.world.outcome === 'running' || (snapshot.drive.kind === 'free' && snapshot.drive.phase === 'collision'));
 }
 
+export function renderExecution(snapshot: Snapshot): void {
+  element('actor-limits').textContent = `Fast steering: <=${snapshot.settings.fastSwerveSpeedLimit} km/h / ` +
+    `Slow: no actor cap / Gate: ${snapshot.settings.swerveSpeedLimit} km/h (${snapshot.settings.swerveTier})`;
+  const rows = snapshot.execution.slice(-6).map((event) => {
+    const row = document.createElement('li');
+    row.dataset.phase = event.phase;
+    row.textContent = `#${event.tick}${event.episodeId === null ? '' : ` / E${event.episodeId}`} ${event.detail}`;
+    return row;
+  });
+  if (!rows.length) {
+    const row = document.createElement('li');
+    row.textContent = 'Actors propose > Gate permits or refuses > Controller applies > Turn completes';
+    rows.push(row);
+  }
+  element('execution-history').replaceChildren(...rows);
+}
+
 export function renderDrive(snapshot: Snapshot, busy = false): void {
   const { drive, world } = snapshot;
   const run = element('run');

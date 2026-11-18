@@ -11,6 +11,8 @@ export interface Config {
   brakeDecelMps2: number;
   gentleDecelMps2: number;
   gentleSpeedKmh: number;
+  fastSwerveSpeedLimit: number;
+  fastLaneClearThreshold: number;
   accelMps2: number;
   driveSeed: number;
   driveDurationS: number;
@@ -89,10 +91,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     iceRiskTempC,
     brakeDecelMps2,
     gentleDecelMps2: Math.min(numberSetting(env, 'GENTLE_DECEL_MPS2', 3, 0.01, 100), brakeDecelMps2),
-    gentleSpeedKmh: numberSetting(env, 'GENTLE_SPEED_KMH', 50, 1, 130),
+    gentleSpeedKmh: numberSetting(env, 'GENTLE_SPEED_KMH', 40, 1, 130),
+    fastSwerveSpeedLimit: numberSetting(env, 'FAST_SWERVE_SPEED_LIMIT_KMH', 40, 0, 40),
+    fastLaneClearThreshold: numberSetting(env, 'FAST_LANE_CLEAR_THRESHOLD', 0.9, 0.5, 1),
     accelMps2: numberSetting(env, 'ACCEL_MPS2', 2, 0.01, 100),
     driveSeed: numberSetting(env, 'DRIVE_SEED', 42, 0, 0xffffffff, true),
-    driveDurationS: numberSetting(env, 'DRIVE_DURATION_S', 120, 0, 3600, true),
+    driveDurationS: numberSetting(env, 'DRIVE_DURATION_S', 0, 0, 3600, true),
     driveGapS: numberSetting(env, 'DRIVE_GAP_S', 3, 0, 300),
     driveDwellS: numberSetting(env, 'DRIVE_DWELL_S', 3, 0, 300),
     initialHazardDistanceM: numberSetting(env, 'INITIAL_HAZARD_DISTANCE_M', 500, 0.01, 100_000),

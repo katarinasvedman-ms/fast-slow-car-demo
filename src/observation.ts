@@ -29,7 +29,7 @@ export function observeScene(world: WorldState, variant: HazardVariant): SceneVi
         vehicleBehindM: follower ? follower.distanceBehindM >= 0 ? follower.distanceBehindM : null
           : blocked ? world.adjacentVehicleDistanceBehindM : null,
         ...(follower && follower.distanceBehindM < 0 ? { vehicleAheadM: -follower.distanceBehindM } : {}),
-        clearAheadM: blocked || follower ? null : world.clearLaneDistanceM,
+        clearAheadM: blocked || (follower && follower.distanceBehindM < 0) ? null : world.clearLaneDistanceM,
       };
     }),
   };
@@ -41,7 +41,7 @@ export function buildObservation(world: WorldState, variant: HazardVariant): str
   const laneObservations = scene.lanes
     .map(({ lane, vehicleBehindM, vehicleAheadM, clearAheadM }) => `Lane ${lane}: ${vehicleAheadM !== undefined
       ? `vehicle detected ${Math.round(vehicleAheadM)} m ahead` : vehicleBehindM !== null
-        ? `vehicle detected ${Math.round(vehicleBehindM)} m behind` : `clear to ${clearAheadM} m`}.`);
+        ? `vehicle detected ${Math.round(vehicleBehindM)} m behind${clearAheadM === null ? '' : `; clear ahead to ${clearAheadM} m`}` : `clear to ${clearAheadM} m`}.`);
   const following = scene.followingVehicle;
   return [
     `Thermal and radar contact ahead in lane ${scene.contact.lane}, range ${Math.round(scene.contact.rangeM)} m, closing.`,

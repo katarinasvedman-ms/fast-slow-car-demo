@@ -14,6 +14,10 @@ else {
   models = live;
 }
 const simulation = new Simulation(config, models);
+if (!config.stub) {
+  simulation.setRunKind('free');
+  simulation.setEncounter('rear_threat');
+}
 const server = createApp(simulation).listen(config.port, '127.0.0.1', () => {
   const address = server.address();
   if (address && typeof address !== 'string') {

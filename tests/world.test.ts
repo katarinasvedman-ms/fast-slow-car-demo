@@ -30,7 +30,7 @@ test('gradual braking integrates distance, preserves braking on speed changes, a
 });
 
 test('gentle slowing integrates a capped slowdown without panic braking, stopping or increasing an already lower speed', () => {
-  const config = loadConfig({ BRAKE_DECEL_MPS2: '9' });
+  const config = loadConfig({ BRAKE_DECEL_MPS2: '9', GENTLE_SPEED_KMH: '50' });
   let world = applyAction(createWorld(config, 110, 'small_animal', 12, 'rear_threat'), 'slow_down');
   world = advanceWorld(world, config);
   assert.ok(Math.abs(world.speedKmh - 105.68) < 1e-8);

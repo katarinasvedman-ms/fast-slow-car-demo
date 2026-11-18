@@ -210,17 +210,21 @@
     .view-buttons { justify-content: end; }
     .view-buttons button { font-size: 10px; padding: 8px; }
     .teaching-caption { margin: 0 0 2px; text-align: center; color: var(--cp-text-soft); font-size: 12px; }
+    .execution-strip { padding: 6px 12px; border: 1px solid var(--cp-border); border-radius: 10px; background: var(--cp-panel); }
+    #actor-limits { margin: 0; font-size: 11px; color: var(--cp-text-soft); }
+    #execution-history { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; padding: 0; margin: 4px 0 0; font-size: 11px; }
+    #execution-history li[data-phase=refused] { color: var(--cp-danger); }
+    #execution-history li[data-phase=applied], #execution-history li[data-phase=completed] { color: var(--cp-success); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     #controls-band { padding: 8px 12px; background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong); border-radius: 12px; }
     .controls-heading { display: flex; align-items: center; gap: 16px; font-size: 11px; }
     .controls-heading button { padding: 3px 8px; font-size: 11px; }
     #tuning-rail { padding-top: 4px; }
-    .tuning-fields { display: grid; grid-template-columns: 1.4fr 1.2fr 1fr 1fr 1fr 1.1fr 1.2fr; gap: 16px; align-items: start; }
+    .tuning-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 16px; align-items: start; }
     #tuning-rail label { color: var(--cp-text-soft); font-size: 11px; min-width: 0; }
     #tuning-rail select { width: 100%; min-width: 0; padding: 6px; height: 30px; font-size: 12px; }
-    #tuning-rail #scenario { font-size: 12px; font-weight: 650; }
-    #scenario-watch, #staleness-help, #temperature-help, #reset-help { margin: 0; font-size: 10px; line-height: 1.3; }
-    #scenario-watch { margin-top: 4px; color: var(--cp-text-soft); }
+    #run-help, .field-help, #staleness-help, #temperature-help, #reset-help { margin: 0; font-size: 10px; line-height: 1.3; }
+    #run-help { margin-top: 4px; color: var(--cp-text-soft); }
     .tuning-row { display: grid; grid-template-columns: minmax(52px, 0.8fr) minmax(0, 1fr); gap: 4px 8px; min-width: 0; }
     .tuning-row label, .tuning-row p { grid-column: 1 / -1; }
     .tuning-row input[type=number] { width: 100%; height: 30px; padding: 4px 6px; font-size: 12px; }
@@ -367,6 +371,9 @@
           <div id="freshness-label-visible"></div>
         </article>
       </section>
+      <section class="execution-strip" aria-label="Governed execution">
+        <p id="actor-limits"></p><ol id="execution-history" aria-live="off"></ol>
+      </section>
       <section id="controls-band" aria-label="Controls">
       <div class="controls-heading">
         <button id="tuning-toggle" aria-controls="tuning-rail" aria-expanded="true">Controls [T]</button>
@@ -375,17 +382,16 @@
         <div class="action-strip">
           <div class="view-buttons row"><button id="mute" aria-label="Mute sound" aria-pressed="false">SOUND ON [M]</button><button id="presenter" aria-pressed="false">PRESENT [P]</button><button id="fullscreen">FULLSCREEN [F]</button><button id="details-toggle" aria-expanded="false" aria-controls="detail-panel">Details</button></div>
         </div>
-        <p id="reset-help" hidden>Reset to change mode / hazard</p>
+        <p id="reset-help" hidden>Reset to change mode / run type</p>
         <div class="tuning-fields">
-          <label>Scenario<select id="scenario" disabled><option value="custom">Custom</option></select></label>
-          <label>Mode<select id="mode" disabled><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select></label>
-          <label>Hazard<select id="hazard" disabled><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
-          <div class="tuning-row"><label for="speed-number">Speed / km/h</label><input id="speed-number" aria-label="Selected speed in km/h" type="number" min="50" max="130" step="any" value="110" required disabled><input id="speed" aria-label="Selected speed slider" type="range" min="50" max="130" step="any" value="110" disabled></div>
-          <div class="tuning-row"><label for="threshold-number">Damage threshold</label><input id="threshold-number" aria-label="Damage threshold" type="number" min="0" max="1" step="any" value="0.35" required disabled><input id="threshold" aria-label="Damage threshold slider" type="range" min="0" max="1" step="any" value="0.35" disabled></div>
+          <label>Run<select id="run" aria-describedby="run-help" disabled><option value="free" disabled>Continuous / until Stop</option><option value="staged">Single contact / staged</option></select></label>
+          <label>Mode<select id="mode" aria-describedby="mode-help" disabled><option value="fast_only">Fast only</option><option value="blocking">Blocking</option><option value="async_gated" selected>Async + gated</option></select><span id="mode-help" class="field-help"></span></label>
+          <div class="tuning-row"><label for="speed-number">Speed / km/h</label><input id="speed-number" aria-label="Selected speed in km/h" type="number" min="50" max="130" step="any" value="110" required disabled><input id="speed" aria-label="Selected speed slider" type="range" min="50" max="130" step="any" value="110" disabled><p class="field-help">Target speed; raising it does not cancel braking.</p></div>
+          <div class="tuning-row"><label for="threshold-number">Damage threshold</label><input id="threshold-number" aria-label="Damage threshold" type="number" min="0" max="1" step="any" value="0.35" required disabled><input id="threshold" aria-label="Damage threshold slider" type="range" min="0" max="1" step="any" value="0.35" disabled><p class="field-help">Hard-brake risk cutoff when no fast turn is eligible.</p></div>
           <div class="tuning-row"><label for="staleness">Staleness / ticks</label><input id="staleness" aria-label="Staleness limit in ticks" aria-describedby="staleness-help" type="number" min="0" max="10" step="1" value="3" required disabled><input id="staleness-range" aria-label="Staleness limit slider" type="range" min="0" max="10" step="1" value="3" disabled><p id="staleness-help">Waiting for server</p></div>
           <div class="tuning-row"><label for="temperature-number">Outside / °C</label><input id="temperature-number" aria-label="Outside temperature in degrees Celsius" type="number" min="-20" max="30" step="any" value="12" required aria-describedby="temperature-help" disabled><input id="temperature" aria-label="Outside temperature slider" type="range" min="-20" max="30" step="any" value="12" aria-describedby="temperature-help" disabled><p id="temperature-help">Waiting for server</p></div>
         </div>
-        <p id="scenario-watch" aria-label="What to watch">What to watch: Tune, then Start.</p>
+        <p id="run-help" role="status">Waiting for server</p>
         <p class="teaching-caption">The world does not wait. Advice expires. Agreement is not authority.</p>
       </aside>
       </section>
@@ -425,10 +431,9 @@
             <h3>Adviser / full assessment</h3><div id="advice-status" class="detail-muted"></div><div id="advice-action-full"></div><p id="advice-rationale-full"></p><div id="advice-stamp" class="detail-muted"></div><div id="freshness-label" class="detail-muted"></div>
           </section>
           <details class="detail-card">
-            <summary>Run settings</summary>
+            <summary>Optional time limit</summary>
             <div class="toolbar">
-              <label>Run<select id="run"><option value="staged">Staged moments</option><option value="free" disabled>Continuous rear threats / live only</option></select></label>
-              <label>Drive duration (s; 0 = until Stop)<input id="duration" type="number" min="0" max="3600" step="1" value="120" required></label>
+              <label>Drive duration (s; 0 = until Stop)<input id="duration" type="number" min="0" max="3600" step="1" value="0" required></label>
             </div>
             <p id="drive-availability" class="detail-muted"></p>
           </details>
@@ -437,7 +442,7 @@
           </details>
           <details class="detail-card">
             <summary>Teaching notes &amp; recording provenance</summary>
-            <p>A missed major hazard costs more than unnecessary braking. The notch is deliberately below 0.5. Known low-risk contacts get a gentle slowdown toward the configured lower speed, not an emergency stop. High-risk, unknown or failed fast decisions brake while the sensed contact is in the occupied path. Once clear and no longer turning, the car accelerates toward selected speed. In Blocking mode fast actions and deadline defaults are suppressed while advice is pending, not physical motion.</p>
+            <p>A missed major hazard costs more than unnecessary braking. The notch is deliberately below 0.5. Fast may steer at or below 40 km/h only with a valid answer and a specifically observed-clear adjacent route. Otherwise known low-risk contacts get gentle slowing; high-risk, unknown or failed decisions brake in-path. Slow proposals have no actor speed cap, but both actors obey the gate's current temperature limit and freshness rule. Once clear and no longer turning, recover selected speed. Blocking suppresses fast actions while advice is pending, not physical motion.</p>
             <p>Staleness 3 rejects the default five-tick replay. Limit 6 permits its age, not its speed: the independent limit follows trusted outside temperature (normal grip, frost risk, ice risk). Temperature is never sent to either model. New same-tick fast actions win. Refused advice changes nothing. A later brake does not cancel a turn already underway.</p>
             <p>Recorded responses are real synthetic-input captures. Ambiguous samples were curated for the 0.35 versus 0.50 contrast. Slow replay repeats a captured recommendation, not adaptive reasoning. Timing and live results vary.</p>
           </details>

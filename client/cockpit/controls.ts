@@ -1,4 +1,4 @@
-import type { Encounter, HazardVariant, Mode, RunKind, Snapshot } from '../../src/types.js';
+import type { Encounter, HazardVariant, Mode, RunKind } from '../../src/types.js';
 
 export type Control =
   | { command: 'start' | 'reset' | 'stop' }
@@ -10,80 +10,13 @@ export type Control =
 
 export type SendControl = (control: Control) => Promise<void>;
 
-export const scenarios = [
-  { id: 'custom', name: 'Custom', watch: 'Tune, then Start.', settings: null },
-  { id: 'confident-elk', name: 'Confident elk', watch: 'Watch: early braking.',
-    settings: { mode: 'fast_only', hazard: 'elk', speed: 90, threshold: 0.35, staleness: 3, temperature: 12 } },
-  { id: 'ambiguous-hazard', name: 'Ambiguous hazard', watch: 'Watch: risk vs notch.',
-    settings: { mode: 'fast_only', hazard: 'ambiguous', speed: 90, threshold: 0.35, staleness: 3, temperature: 12 } },
-  { id: 'late-advice-refused', name: 'Late advice refused', watch: 'Watch: both lamps.',
-    settings: { mode: 'async_gated', hazard: 'elk', speed: 90, threshold: 0.35, staleness: 3, temperature: -4 } },
-  { id: 'allowed-swerve', name: 'Allowed swerve', watch: 'Watch: brake release.',
-    settings: { mode: 'async_gated', hazard: 'elk', speed: 90, threshold: 0.35, staleness: 6, temperature: 12 } },
-  { id: 'rear-threat', name: 'Rear threat (live)', watch: 'Brake first; watch the following car close in. Advice is not guaranteed.',
-    settings: { mode: 'async_gated', hazard: 'elk', speed: 110, threshold: 0.35, staleness: 10, temperature: 12 } },
-  { id: 'continuous-rear-threat', name: 'Continuous rear threats (live)', watch: 'New hazards until Stop. Collision pauses; Start resumes.',
-    settings: { mode: 'async_gated', hazard: 'elk', speed: 110, threshold: 0.35, staleness: 10, temperature: 12 } },
-] as const;
-
-export type ScenarioId = typeof scenarios[number]['id'];
-
-export function scenarioFor(id: string): typeof scenarios[number] {
-  const scenario = scenarios.find((entry) => entry.id === id);
-  if (!scenario) throw new Error('Unknown cockpit scenario.');
-  return scenario;
-}
-
-export function scenarioCommands(id: ScenarioId): Control[] {
-  const { settings } = scenarioFor(id);
-  if (!settings) return [];
-  const continuous = id === 'continuous-rear-threat';
+export function runCommands(kind: RunKind): Control[] {
   return [
     { command: 'reset' },
-    { command: 'run', value: continuous ? 'free' : 'staged' },
-    { command: 'mode', value: settings.mode },
-    ...(!continuous ? [{ command: 'hazard', value: settings.hazard } as const] : []),
-    { command: 'speed', value: settings.speed },
-    { command: 'temperature', value: settings.temperature },
-    { command: 'threshold', value: settings.threshold },
-    { command: 'staleness', value: settings.staleness },
-    { command: 'encounter', value: id === 'rear-threat' || continuous ? 'rear_threat' : 'standard' },
-    ...(continuous ? [{ command: 'duration', value: 0 } as const] : []),
+    { command: 'run', value: kind },
+    { command: 'encounter', value: kind === 'free' ? 'rear_threat' : 'standard' },
+    ...(kind === 'free' ? [{ command: 'duration', value: 0 } as const] : []),
   ];
-}
-
-function matches(id: ScenarioId, snapshot: Snapshot): boolean {
-  const { settings } = scenarioFor(id);
-  const continuous = id === 'continuous-rear-threat';
-  return settings !== null && snapshot.drive.kind === (continuous ? 'free' : 'staged') &&
-    snapshot.world.encounter === (id === 'rear-threat' || continuous ? 'rear_threat' : 'standard') &&
-    (!continuous || snapshot.drive.durationS === 0) &&
-    snapshot.mode === settings.mode && (continuous || snapshot.hazardVariant === settings.hazard) &&
-    snapshot.world.selectedSpeedKmh === settings.speed && snapshot.threshold === settings.threshold &&
-    snapshot.world.ambientTempC === settings.temperature && snapshot.settings.stalenessLimitTicks === settings.staleness;
-}
-
-export class ScenarioSelection {
-  private selected: ScenarioId = 'custom';
-  private pending: ScenarioId | undefined;
-
-  choose(id: ScenarioId): void {
-    this.custom();
-    if (id !== 'custom') this.pending = id;
-  }
-
-  custom(): void {
-    this.selected = 'custom';
-    this.pending = undefined;
-  }
-
-  update(snapshot: Snapshot): ScenarioId {
-    if (this.pending && matches(this.pending, snapshot)) {
-      this.selected = this.pending;
-      this.pending = undefined;
-    } else if (this.selected !== 'custom' && !matches(this.selected, snapshot)) this.custom();
-    return this.selected;
-  }
 }
 
 export async function sendControl(control: Control, request: typeof fetch = fetch, retryAfterReset = true): Promise<void> {

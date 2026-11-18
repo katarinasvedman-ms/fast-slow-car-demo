@@ -105,26 +105,30 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | R / Reset | Cancel the run and return to idle |
 | Details / Close / Escape | Show or hide sensor input and full decision details |
 | T / Controls tab | Collapse the band to its slim control bar, or reopen it |
-| P / Present | Hide the controls and show a scenario-name caption; press again to restore them |
+| P / Present | Hide the controls; press again to restore them |
 | M / Sound (top bar) | Toggle sound on/off, including with controls hidden or in presenter mode |
 | F / Fullscreen | Enter or leave fullscreen |
-| Confident elk | Fast only, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
-| Ambiguous hazard | Fast only, Ambiguous, 90 km/h, threshold 0.35, 12 °C, staleness 3 |
-| Late advice refused | Async + gated, Elk, 90 km/h, threshold 0.35, -4 °C, staleness 3 |
-| Allowed swerve | Async + gated, Elk, 90 km/h, threshold 0.35, 12 °C, staleness 6 |
-| Rear threat (live) | Async + gated, Elk at configured initial range, 110 km/h, 12 °C, staleness 10; following traffic reacts late |
-| Continuous rear threats (live) | Same speed/gate settings, configured forward range and initial follower gap, new hazard types, persistent traffic, no time limit; collision pauses |
-| Continuous rear threats (Run in Details) / Stop | Select continuous rear threats / end with a scoreboard |
+| Run | Continuous / until Stop, or explicitly select Single contact / staged |
+| Mode | Fast only: no reasoning; Blocking: fast waits while the world moves; Async + gated: both operate asynchronously |
+| Speed | Selected target; does not jump actual speed or cancel braking |
+| Damage threshold | Hard-brake risk cutoff when no fast turn is eligible |
+| Staleness | Maximum advice age in ticks; the help text converts to seconds, not a model timeout |
+| Outside temperature | Trusted gate sensor determining the current steering limit; never model input |
+| Stop | End continuous driving with a scoreboard |
 
-Presets reset first and apply the existing commands serially, then wait for
-**Start**. Mode and hazard remain locked until Reset, with a **Reset to change**
-hint. Slider values, instrument markers and scenario labels follow authoritative
+There is no cockpit Scenario or Hazard selector, or hidden preset bundle. Live startup
+defaults to **Continuous**, with no time limit; each successful encounter leads
+to another, rather than freezing after a single passage. Impacts still pause for
+inspection; Start resumes from rest. STUB remains explicitly single-contact replay.
+Run selection resets the world and sets up continuous following traffic or a
+single staged contact, without changing mode, speed, temperature, threshold or
+staleness. It never starts inference. Mode and run type remain locked until Reset,
+with a **Reset to change** hint. Slider values and instrument markers follow authoritative
 SSE snapshots, not potentially older control-response bodies. A reset-required
 mode/hazard response triggers Reset before one retry; other errors remain explicit.
 Shortcuts do not steal
 keystrokes from editable controls; focused buttons retain normal keyboard use.
-The single scenario/settings/description table lives in `client\cockpit\controls.ts`.
-Use the band for Blocking mode, Small animal, or other tuning settings.
+Use the individually labelled controls and their inline explanations.
 The old numbered buttons and 1-4 shortcuts are removed from the cockpit only;
 the 2D page is unchanged.
 
@@ -153,8 +157,8 @@ asphalt sheen, a lit horizon glow, soft brake-light falloff,
 hood edge and A-pillars frame the view. The mirror shows the existing observed
 vehicle behind, not additional traffic. Its rear-camera image is reflected
 horizontally, so lane 1 stays left, and follows the car's reported lane throughout
-a turn without moving the fixed-gap lane-1 traffic. The Rear threat preset
-additionally shows its physically simulated following vehicle in lane 2.
+a turn without moving the fixed-gap lane-1 traffic. Continuous rear threats
+additionally show the physically simulated following vehicle in lane 2.
 The smaller steering wheel sits at the bottom centre of the windshield,
 partly behind the hood, never in a dashboard card. The risk
 number is below, not on top of, its dial. A large envelope bounces back on a
@@ -166,7 +170,7 @@ progress, and smoothing only trails known state. Traffic retains its world-backe
 fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.
 Sound is synthesised locally and can be muted before Start.
 
-Rehearse each named scenario at projector resolution in STUB mode. Include an
+Rehearse the four teaching moments using explicit staged controls at projector resolution in STUB mode. Include an
 Ambiguous threshold edit to 0.50, both independent gate refusals, reset while
 thinking, and the three-tick lane change and recovery to selected speed after
 clearing the contact's lane. Two refusals at 90 km/h are not guaranteed after braking
@@ -277,6 +281,38 @@ temperature at model observation. The three default tiers are **normal grip**
 braking while advice is pending. **Async + gated** keeps fast actions active.
 **Fast only** never calls the slow model. Both gate checks are logged; the
 advice card retains the slow action's decision even as the fast gate log scrolls.
+Fast now also has a bounded steering policy: at **<=40 km/h**, a known timely
+answer with lane-clear probability **>=0.9** may propose a specific sensor-clear
+adjacent lane. It requires clear forward range covering the three-tick turn
+plus 5 m. A tracked vehicle behind may share that lane only if its measured gap,
+minus positive closing speed over the turn plus a two-second buffer, still leaves
+at least 20 m. This assumes no helpful braking by that vehicle. Traffic ahead,
+untracked rear traffic and unknown forward clearance remain ineligible. Right wins
+ties, and an ongoing turn is never redirected. The route is checked again before
+applying a fast turn. `FAST_SWERVE_SPEED_LIMIT_KMH` may lower, but not raise, the
+40 km/h cap. `FAST_LANE_CLEAR_THRESHOLD` configures conservative screening;
+neither this probability nor the simple route check proves a safe trajectory.
+
+The shared gate remains authoritative over **both actors**. Its speed rule uses
+the lower of the actor cap and current temperature limit for fast swerves;
+slow proposals have no actor cap but must obey the same temperature limit.
+Freshness is still the first rule, and both are rechecked at application.
+The **Governed execution** strip shows separate limits and recent proposals,
+gate refusals, allowed-but-not-applied decisions, applied actions, completed turns
+and cancelled reasoning. A bounded 24-event history is independent of the fast
+gate log; both views show its latest six events. Reset clears it.
+
+For an isolated fast escape, use the 2D page's staged controls:
+**Fast only**, **Small animal**, 50 km/h, 12 °C and staleness 10.
+For slow steering above 40, use **Async + gated**, normal-grip temperature and
+enough age allowance, but the live answer must still arrive before the physical
+opportunity ends. These settings never force an answer or success. Stay in
+**Continuous** when you want new contacts until Stop; it uses seeded contact types.
+The four original teaching buttons remain on the 2D page, but fast-only is no longer
+brake-only: once speed falls to 40, fast may escape before slow advice arrives.
+Consequently, a late-advice run may no longer show both refusal lamps; inspect
+actual speed/age and provenance rather than assuming old outcomes.
+
 In staged moments both reasoning modes continuously reassess: after an assessment has been evaluated,
 the next running tick sends a fresh observation. There is at most one slow request
 in flight and no new request while earlier advice awaits application. Observation
@@ -299,12 +335,13 @@ within 150 m or after an outcome, never added to either model's input.
 
 ## Rear threat (live-only staged scenario)
 
-Select **Rear threat (live)** in the cockpit Scenario dropdown, then Start.
-It sets Async + gated, Elk, 110 km/h, 12 °C and a 10-tick (4 s) advice limit.
+The isolated rear-threat setup remains available through the control API:
+Reset, `run=staged`, `encounter=rear_threat`. Set Async + gated, Elk,
+110 km/h, 12 °C and a 10-tick (4 s) advice limit, then Start.
 The contact starts at `INITIAL_HAZARD_DISTANCE_M` (500 m if unset); a following vehicle starts
 `FOLLOWING_VEHICLE_DISTANCE_M` behind in lane 2 (80 m by default)
 at the same speed. Lane 1 has the existing traffic; lane 3 is observed clear.
-This staged preset does not start automatically or change continuous driving.
+This staged setup does not start automatically or change continuous driving.
 To move the animal farther away, edit `.env` and restart the server; Reset alone
 does not reload environment settings. Try `INITIAL_HAZARD_DISTANCE_M=80` for a
 short warning, 45 for an especially tight encounter, or 300 for a distant contact.
@@ -348,9 +385,9 @@ to implement it.
 
 ## Continuous rear threats (live only)
 
-For the continuing rear-threat demo, select **Continuous rear threats (live)**
-in the cockpit Scenario dropdown, then **Start**. It keeps 110 km/h, Async + gated,
-12 °C and staleness 10, and sets duration to **0 (until Stop)**. New hazards appear
+Live startup defaults to **Run: Continuous / until Stop**. Set mode, speed,
+temperature, threshold and staleness individually, then **Start**. No preset
+silently changes those controls. Duration defaults to **0 (until Stop)**. New hazards appear
 at `INITIAL_HAZARD_DISTANCE_M` in the car's current lane (this rehearsal: **80 m
 ahead**), with seeded elk, small animal or ambiguous descriptions and adjacent
 traffic. One following car starts `FOLLOWING_VEHICLE_DISTANCE_M` behind (this
@@ -365,12 +402,12 @@ from its lane rather than hiding a second vehicle behind the same sensor marker.
 There is no model work between animal contacts, and speed recovers
 physically to the selected setting before another rear-threat contact appears.
 Collisions still pause for inspection; **Start** resumes from rest, retaining the
-score. **Stop** ends the run. The ordinary **Rear threat (live)** preset remains
-a single encounter.
+score. **Stop** ends the run. Explicit staged runs remain single encounters.
 
-Both views also offer **Run: Continuous rear threats** (in Details in the cockpit).
-Selection resets the world, chooses Async + gated and removes the duration limit,
-preserving the other tuning settings. Presets **1-4 always return to staged
+Both views also offer a **Run** control (in the main cockpit control band).
+Cockpit selection resets the world and removes the duration limit for continuous
+driving, preserving all actor/gate tuning settings. The 2D teaching buttons
+**1-4 always return to staged
 moments**, with their original settings. The separate Free drive button and
 Standard/Rear traffic selector have been removed. The underlying episode engine
 remains internal. Continuous driving is disabled in STUB, including on the server: the checked-in
@@ -436,10 +473,11 @@ because expected damage is low. If no safer observed route exists, it should
 continue rather than risk a worse collision with a dangerous swerve or hard
 braking. Large/uncertain contacts still call for braking when no safer route is
 observed. The fast layer now proposes **gentle slowing** for a known low-risk
-contact in the occupied path: `GENTLE_DECEL_MPS2` (3 m/s² by default, capped at the
-emergency setting) toward `GENTLE_SPEED_KMH` (50 km/h by default, capped at selected
+contact in the occupied path when no fast steering route is eligible:
+`GENTLE_DECEL_MPS2` (3 m/s² by default, capped at the emergency setting)
+toward `GENTLE_SPEED_KMH` (40 km/h by default, capped at selected
 speed). It keeps moving rather than gently stopping, never raises an already
-lower actual speed, and never swerves. The cockpit shows **GENTLE SLOWDOWN**,
+lower actual speed. The cockpit shows **GENTLE SLOWDOWN**,
 separately from emergency **BRAKING**. The following car reacts to both.
 High-risk/unknown/error/deadline emergency braking and both gate rules remain
 unchanged. A later allowed action releases gentle slowing without a speed jump;
@@ -450,6 +488,14 @@ A three-tick turn still takes 1.2 s. This adds only a little time, not guarantee
 avoidance or a guarantee that live reasoning arrives in time. Fast-only mode
 still has no slow escape advice. Recordings remain unchanged; their probabilities
 now pass through the updated fast policy.
+
+At 110 km/h, reaching 40 with 3 m/s² slowing needs about 135 m before turning,
+so the local 80 m contact remains a demanding case, not a guaranteed fast escape.
+Earlier sensing or lower starting speed is necessary for that path. The matched
+85 m / controlled 2,000 ms mock in `tests\governed-steering.test.ts` demonstrates
+one case where concurrent slowing plus slow steering avoids an impact that
+fast-only and blocking encounter. It is an illustrative regression, not live
+latency data, a general performance benchmark or a vehicle-safety claim.
 
 If continuous driving cancels a pending assessment at collision, episode end,
 Stop, or the duration limit, both views retain its observation tick, cancellation
@@ -487,10 +533,12 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 | `TICK_MS` / `TICK_BUDGET_MS` | `400` / `350` | Fixed clock (minimum 50 ms) and fast deadline; budget must be smaller |
 | `BRAKE_DECEL_MPS2` | `1.5` | Positive gradual braking deceleration |
 | `GENTLE_DECEL_MPS2` | `3` | Low-risk slowdown deceleration, capped at `BRAKE_DECEL_MPS2` (local rehearsal: 3 versus 9 m/s²) |
-| `GENTLE_SPEED_KMH` | `50` | Low-risk slowdown target, capped at selected speed; never accelerates an already slower car |
+| `GENTLE_SPEED_KMH` | `40` | Low-risk slowdown target, capped at selected speed; never accelerates an already slower car |
+| `FAST_SWERVE_SPEED_LIMIT_KMH` | `40` | Fast steering cap, configurable only downward (0..40); gate also enforces temperature |
+| `FAST_LANE_CLEAR_THRESHOLD` | `0.9` | Fast lane-clear screening probability (0.5..1); explicit clear sensor route still required |
 | `ACCEL_MPS2` | `2.0` | Clear-path recovery acceleration in m/s² (0.01..100); no acceleration during turns |
 | `DRIVE_SEED` | `42` | Unsigned 32-bit seeded quiet-gap, hazard/adjacent-traffic and spawn-distance sequence |
-| `DRIVE_DURATION_S` | `120` | Initial live-editable running-time duration, integer 0..3600 seconds; 0 means until Stop |
+| `DRIVE_DURATION_S` | `0` | Initial live-editable running-time duration, integer 0..3600 seconds; 0 means until Stop |
 | `DRIVE_GAP_S` | `3` | Base quiet interval, 0..300 seconds; each initial/subsequent gap samples 85–115%, rounded up to ticks |
 | `DRIVE_DWELL_S` | `3` | Stopped-contact dwell before scenario clearance, 0..300 seconds |
 | `INITIAL_HAZARD_DISTANCE_M` | `500` | Contact distance for staged scenes and continuous Rear threats; restart after edits |

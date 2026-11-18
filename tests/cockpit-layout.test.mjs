@@ -97,6 +97,10 @@ test('cockpit renders full advice, independent refusal details and both tuning i
   ] };
   const before = structuredClone(state);
   renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.has('scenario'), false);
+  assert.equal(nodes.has('hazard'), false);
+  assert.match(nodes.get('run-help').textContent, /Offline recordings/);
+  assert.match(nodes.get('mode-help').textContent, /Fast keeps acting/);
   assert.equal(nodes.get('advice-action').textContent, 'SWERVE / LANE 3');
   assert.equal(nodes.get('advice-rationale').textContent, state.advice.data.rationale);
   assert.equal(nodes.get('advice-stamp-visible').textContent, 'Observed #0 / arrived #5 / 3841 ms model latency');
@@ -159,11 +163,14 @@ test('cockpit renders full advice, independent refusal details and both tuning i
     cancellation: { atTick: 9, reason: 'collision' },
   };
   state.drive.kind = 'free';
+  state.backend = 'live';
   state.drive.phase = 'collision';
   state.world.outcome = 'collision';
   let thinking;
   nodes.get('thinking-ring').classList.toggle = (_name, enabled) => { thinking = enabled; };
   renderDash(mapSnapshot(state), [], false);
+  assert.match(nodes.get('run-help').textContent, /Runs until Stop/);
+  assert.match(nodes.get('run-help').textContent, /Impacts pause/);
   assert.equal(nodes.get('advice-action').textContent, 'CANCELLED AT COLLISION');
   assert.equal(nodes.get('advice-status').textContent, 'CANCELLED AT COLLISION');
   assert.equal(nodes.get('advice-history').textContent, 'Last assessment / no answer received');
@@ -171,4 +178,12 @@ test('cockpit renders full advice, independent refusal details and both tuning i
   assert.equal(nodes.get('freshness-label-visible').textContent, 'OBSERVATION AGE AT CANCELLATION 8 / 3 TICKS');
   assert.equal(nodes.get('gate-verdict').textContent, 'WAITING');
   assert.equal(thinking, false);
+  state.execution = [
+    { tick: 1, episodeId: 1, source: 'fast', phase: 'applied', action: 'slow_down', detail: 'GATE ALLOWED / fast slow down applied.' },
+    { tick: 5, episodeId: 1, source: 'slow', phase: 'not_applied', action: 'swerve', toLane: 3, detail: 'GATE ALLOWED / slow swerve allowed, not applied: fast brake wins the same-tick conflict.' },
+  ];
+  renderDash(mapSnapshot(state), [], false);
+  assert.match(nodes.get('actor-limits').textContent, /Fast steering: <=40 km\/h \/ Slow: no actor cap \/ Gate:/);
+  assert.equal(nodes.get('execution-history').children[0].dataset.phase, 'applied');
+  assert.match(nodes.get('execution-history').children[1].textContent, /allowed, not applied/);
 });

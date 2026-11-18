@@ -16,6 +16,7 @@ const envelope: ActionEnvelope = {
   proposedAtTick: 5,
 };
 const policyFor = (ambientTempC: number) => ({
+  fastSwerveSpeedLimit: config.fastSwerveSpeedLimit,
   stalenessLimitTicks: config.stalenessLimitTicks, ambientTempC,
   swerveSpeedLimit: swerveSpeedLimitFor(ambientTempC, config),
   swerveTier: swerveTierFor(ambientTempC, config),

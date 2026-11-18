@@ -8,10 +8,38 @@ dependency that is not named below.
 
 These decisions override conflicting examples below:
 
+- Remove the cockpit Scenario and Hazard selectors and their preset bundles.
+  Continuous contacts come from the seeded sequence, not a selected animal. Expose Run and
+  the individual actor/gate controls with concise explanations instead. Live
+  startup defaults to continuous rear threats, duration 0 (until Stop), without
+  starting inference. Selecting a run type preserves mode, speed, threshold,
+  temperature and staleness. Completed contacts lead to more contacts; impacts
+  retain the explicit inspection pause and Start-from-rest recovery. STUB stays
+  staged; the 2D teaching buttons remain available for single-contact rehearsals.
+- Fast steering is now bounded rather than prohibited. At <=40 km/h, a valid,
+  timely fast answer with adjacent-lane-clear probability >=0.9 may propose a
+  turn into a specific observed-clear adjacent lane. Require clear distance
+  covering the three-tick turn plus 5 m and no competing turn. A tracked rear
+  vehicle is eligible only when its measured gap minus positive closing speed
+  over the turn plus two seconds still leaves at least 20 m; never assume it
+  will brake. Reject traffic ahead, untracked rear vehicles and unknown forward
+  clearance. Prefer right on ties. Use captured sensor data, never hidden
+  identity or ground-truth lane blockage. Revalidate the route at application.
+  Configure stricter caps with FAST_SWERVE_SPEED_LIMIT_KMH (0..40); screening
+  confidence uses FAST_LANE_CLEAR_THRESHOLD (0.5..1). These are actor eligibility
+  constraints, not evidence of real-world safety.
+- Slow reasoning has no actor-specific speed cap. The shared deterministic gate
+  still checks both actors at proposal and application: age first, then current
+  speed against the current temperature limit (and the fast cap for fast turns).
+  There remain only two gate rules. Temperature stays out of model inputs.
+  Keep asynchronous advice optional, same-tick arbitration and all cancellation
+  boundaries. Display separate actor/gate limits and a bounded execution history
+  distinguishing proposals, refusals, allowed-but-not-applied actions,
+  applications, turn completion and cancellation. Reset clears history.
 - Known damage risk below the selected threshold now proposes fast `slow_down`
-  while the sensor contact is in the occupied path, regardless of adjacent-lane
-  probability when known. Decelerate gently toward GENTLE_SPEED_KMH (default
-  50 km/h, capped at selected speed), without stopping or increasing an already
+  when no eligible fast turn exists and the sensor contact is in the occupied
+  path, regardless of adjacent-lane probability when known. Decelerate gently
+  toward GENTLE_SPEED_KMH (default 40 km/h, capped at selected speed), without stopping or increasing an already
   lower actual speed. GENTLE_DECEL_MPS2 defaults to 3 m/s², capped at the configured
   emergency BRAKE_DECEL_MPS2 so the gentle setting is never stronger. The local
   9 m/s² rehearsal therefore uses 3 m/s² gentle slowing. High risk, unknown,
@@ -21,8 +49,8 @@ These decisions override conflicting examples below:
   Emergency brake replaces gentle slowing; allowed swerve/continue releases it
   without jumping speed or cancelling an ongoing turn. Following traffic reacts
   to gentle slowing too. Release the slowdown once clear, with physical recovery
-  only after the turn completes. No fast swerves, new gate rules, model-input
-  identity leaks, artificial model delays, or recording changes.
+  only after the turn completes. No new gate rules, model-input identity leaks,
+  artificial model delays, or recording changes.
 - Retain cancelled continuous-drive assessments instead of erasing their
   observation. Show the cancellation reason/tick, original observation tick,
   and wait duration in both views; freeze age at cancellation and stop the
@@ -33,7 +61,7 @@ These decisions override conflicting examples below:
   to strike them. Occupant/road-user safety takes priority: with no safer observed
   route, continue for a low-mass contact rather than cause a worse crash; brake
   for potentially large/uncertain contacts with no safer route. Keep the known
-  low-risk fast action as gentle slowing, not emergency braking or a swerve.
+  low-risk fast fallback as gentle slowing, not emergency braking.
   Both existing gate rules, same-tick
   priority, physical turn duration, deadlines and unknown/error fallbacks stay
   unchanged. Advice must arrive and physically clear the path in time; never

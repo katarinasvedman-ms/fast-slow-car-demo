@@ -17,8 +17,9 @@ the live adapter additionally spaces requests by at least 50 ms (a conservative
 Do not run multiple live apps/probes against the same deployment concurrently.
 
 For a new checkout, copy `.env.example` to `.env` and set `FOUNDRY_ENDPOINT` to
-your resource endpoint, not the project URL. This workspace already has a local
-`.env` configured for the supplied resource; `.gitignore` excludes it.
+your resource endpoint, not the project URL. Configure your existing deployment
+names there too. `.env` is local and excluded by `.gitignore`; a checkout does
+not include the presentation machine's Azure configuration or tuning.
 
 ```powershell
 npm ci
@@ -26,10 +27,19 @@ npm run build
 npm start
 ```
 
-Open `http://127.0.0.1:3000`. One process serves the page, controls, and SSE on
-loopback. Startup speed is **110 km/h**; Reset keeps your selected speed.
-The four original teaching presets retain their explicit 90 km/h settings.
-Models are invoked only after **Start**. **Reset** cancels old work.
+Open **`http://127.0.0.1:3000/cockpit.html`** for the main Night Drive view.
+Live startup is **Continuous / until Stop**, with a seeded mix of contacts and
+a persistent following car. There is no Scenario or Hazard selector.
+Set the individual controls, then press **Start**. Successful encounters lead
+to more encounters; an impact pauses for inspection and Start resumes from rest.
+**Stop** ends the run with a scoreboard. **Reset** cancels old work and keeps
+your selected run type and tuning. Startup speed is **110 km/h**; selecting
+90 km/h is a manual edit, not a preset.
+
+One process serves both views, controls, and SSE on loopback.
+`http://127.0.0.1:3000/` is the secondary 2D explainer, which still has the
+four original single-contact teaching buttons. Models are invoked only after
+**Start**, never just by opening the page or changing idle controls.
 SSE is authoritative in both views. A backpressured connection retains only its
 latest pending snapshot and resumes on drain, rather than disconnecting or
 queuing an unbounded history.
@@ -49,10 +59,10 @@ the displayed model latency is the original recorded call, not an added live del
 ## Night Drive cockpit
 
 Open `http://127.0.0.1:3000/cockpit.html?clawpilotTheme=dark`, or follow
-**Night Drive cockpit** from the original page. This separate first-person view
+**Night Drive cockpit** from the 2D page. This first-person view
 uses the same world, SSE stream, controls, physics, and gate. Opening both pages
 does not create separate runs; Reset in either page resets the shared world.
-The **2D explainer** link returns to the original view.
+Open `/` directly when you need the separate 2D explainer.
 
 The windshield sits above three dashboard cards, ordered
 **REFLEX | THE GATE | ADVISER**, with the **Controls** band below the cards at
@@ -62,18 +72,20 @@ below the 50% ceiling.
 The Adviser is widest. Compact spacing and proportional fitting keep the entire
 lower panel inside that budget as advice, window size or control visibility changes,
 without cropping the rationale or introducing main-view scrollbars.
-The band is open by default: Scenario, Mode, Hazard, then paired number inputs
-and sliders for speed, damage threshold, staleness (0-10 ticks) and outside temperature.
+The band is open by default: **Run**, **Mode**, then paired number inputs
+and sliders for **Speed**, **Damage threshold**, **Staleness** (0-10 ticks)
+and **Outside temperature**. Short explanations describe what each control does.
 The layout reserves separate rows for the windshield, controls and instruments,
 including on short wide windows; the connection, backend and tick badges stay
 together at the top right.
-The named **Scenario** dropdown resets, applies settings, and waits for Start;
-it never starts a run. Editing a setting returns it to **Custom**.
+There are no named presets, Custom label or hazard dropdown in the cockpit.
+Continuous contacts are generated from the seeded sequence; a control edit
+does not secretly select another scenario or change the other tuning values.
 Details starts closed. Its opaque drawer has a fixed close header, compact
 14 px captured-input text near the top, and grouped sensor, gate, application
-and full-advice cards. Run settings, tick history and teaching notes are
+and full-advice cards. The optional time limit, tick history and teaching notes are
 collapsed by default; the content scrolls independently of the header.
-Controls use 18 px base labels. The Adviser shows its full rationale
+Controls use compact labels. The Adviser shows its full rationale
 at a 20 px base size without an ellipsis, observed/arrived ticks, model latency
 and the freshness bar. The verdict and speed remain large. Both gate lamps
 answer **FRESH ENOUGH? / WITHIN LIMITS?** with YES/NO; each real refusal detail
@@ -106,7 +118,7 @@ Allowed advice is not presented as an applied action until the snapshot says so.
 | Details / Close / Escape | Show or hide sensor input and full decision details |
 | T / Controls tab | Collapse the band to its slim control bar, or reopen it |
 | P / Present | Hide the controls; press again to restore them |
-| M / Sound (top bar) | Toggle sound on/off, including with controls hidden or in presenter mode |
+| M / Sound | Toggle sound on/off, including with controls hidden or in presenter mode |
 | F / Fullscreen | Enter or leave fullscreen |
 | Run | Continuous / until Stop, or explicitly select Single contact / staged |
 | Mode | Fast only: no reasoning; Blocking: fast waits while the world moves; Async + gated: both operate asynchronously |
@@ -130,10 +142,61 @@ Shortcuts do not steal
 keystrokes from editable controls; focused buttons retain normal keyboard use.
 Use the individually labelled controls and their inline explanations.
 The old numbered buttons and 1-4 shortcuts are removed from the cockpit only;
-the 2D page is unchanged.
+the 2D page retains them.
 
-Beyond 150 m the cockpit shows only the sensor contact, even with an explicit
-Elk selection. At **150 m or closer**, the animal appears for the audience
+### Showing the asynchronous handoff
+
+Stay in **Continuous**, choose **Async + gated**, and tune the controls directly.
+A useful starting point for the current close-contact rehearsal is **90 km/h**,
+**12 °C**, **damage threshold 0.35** and **staleness 10** (4 seconds at the
+default clock). This does not select an animal or guarantee a successful turn.
+
+The fast actor may slow or brake immediately, and can itself propose a turn only
+at **40 km/h or below**, with sufficient lane-clear confidence and a sensor-eligible
+route. Slow advice can propose a turn **above 40**: it has no actor-specific cap,
+but the shared gate still checks freshness and the current temperature limit.
+Follow the execution strip to distinguish **FAST** from **SLOW**, gate permission
+from actual application, and application from physical turn completion.
+
+| Outside temperature | Gate tier | Gate steering limit |
+|---|---|---|
+| Above 4 °C | Normal grip | 110 km/h |
+| Above 0 through 4 °C, including 2 °C | Frost risk | 70 km/h |
+| 0 °C or below | Ice risk | 40 km/h |
+
+These are the default configurable limits. Fast turns also retain their 40 km/h
+actor cap. Temperature is a trusted sensor for the deterministic gate, never
+model input; it does not change braking physics or cancel a turn already started.
+Permission is checked again using actual speed and temperature at application.
+
+Staleness is **not a model timeout**. Raising it accepts older observations;
+it does not make reasoning faster or create more physical room. If the car
+reaches 40 first, fast may turn before advice arrives. If advice remains pending
+at impact, it cannot rescue that contact. More starting distance, lower selected
+speed or faster advice can change the opportunity; neither a turn nor an outcome
+is scripted.
+
+### Local rehearsal tuning versus code defaults
+
+The current presentation setup uses these non-secret `.env` overrides:
+
+```dotenv
+BRAKE_DECEL_MPS2=9
+GENTLE_DECEL_MPS2=4
+GENTLE_SPEED_KMH=40
+INITIAL_HAZARD_DISTANCE_M=80
+FOLLOWING_VEHICLE_DISTANCE_M=80
+DRIVE_DURATION_S=0
+```
+
+These are not all repository defaults. In particular, emergency deceleration
+defaults to 1.5 m/s², configured gentle deceleration to 3 m/s² (capped at emergency
+deceleration), and initial contact distance to 500 m. Restart the server after
+editing these environment settings; Reset alone does not reload them.
+Starting distance and braking deceleration are not cockpit controls.
+
+Beyond 150 m the cockpit shows only the sensor contact, even if a staged
+selection was made in the 2D view. At **150 m or closer**, the animal appears for the audience
 while driving, so it can be seen before a safe pass. Identity comes only from
 the audience-facing `world.identity`, never the dropdown. A terminal outcome
 also reveals identity, including a stop farther away.
@@ -170,7 +233,8 @@ progress, and smoothing only trails known state. Traffic retains its world-backe
 fixed relative gaps. Reduced-motion mode disables shaking, roll and animations.
 Sound is synthesised locally and can be muted before Start.
 
-Rehearse the four teaching moments using explicit staged controls at projector resolution in STUB mode. Include an
+For recorded rehearsal, use the four teaching moments on the 2D page at
+projector resolution in STUB mode. Include an
 Ambiguous threshold edit to 0.50, both independent gate refusals, reset while
 thinking, and the three-tick lane change and recovery to selected speed after
 clearing the contact's lane. Two refusals at 90 km/h are not guaranteed after braking
@@ -178,15 +242,16 @@ reduces actual speed. A preset never forces a result. Check performance on the v
 the implementation caps rendering pixel ratio and avoids shadows, but does not
 promise a frame rate on untested hardware.
 
-## Road and model input
+## 2D explainer and model input
 
-The blue vehicle in lane 1 is the observed vehicle **20 m behind** the pink ego
-car. Lane headers mark blocked/clear traffic; green zones show the stated
+In the original single-contact setup, the blue vehicle in lane 1 is the observed
+vehicle **20 m behind** the pink ego car. Lane headers distinguish traffic from
+clear lanes; green zones show the stated
 **100 m clearance**. Hazard range, road condition, and sensor description are
 visible alongside the road. Distances use one shared road scale; car icons are
 not to scale. The other vehicle is co-moving scenery with a fixed relative gap,
-not an independently simulated traffic participant. The live-only Rear threat
-preset adds a separate moving follower, with its measured gap and relative speed
+not an independently simulated traffic participant. Live continuous driving
+adds a separate moving follower, with its measured gap and relative speed
 shared between both views and model observations.
 
 Observation text and scene data share `observeScene` and world-backed distances,
@@ -197,7 +262,7 @@ after an action or speed edit. Before Start it is labelled as an unsent preview;
 after movement stops the last sent tick remains explicit. Current-world controls
 may change after capture; the next model tick captures those changes.
 Gate, threshold, collision, and model-decision rules are unchanged by this scenery.
-Selecting Elk immediately shows the supplied moose image on the road; Small
+In the 2D staged view, selecting Elk immediately shows the supplied moose image on the road; Small
 animal shows the squirrel image from `public\images`, including after Reset.
 These are audience-only previews selected from the dropdown; models still receive
 sensor text only. Ambiguous keeps the unidentified contact marker until the
@@ -206,7 +271,27 @@ Continuous driving has no explicit audience-selected hazard: both views conceal 
 identity until the 150 m audience reveal or a terminal outcome, and the public
 `hazardVariant` is null.
 
-## Rehearse the four moments
+## Recorded single-contact rehearsal (2D page)
+
+This is the optional offline teaching workflow, not the default continuous
+cockpit run. The 2D buttons **1-4** explicitly select staged runs. To reproduce
+the recorded examples below, stop the server and start it in a separate
+PowerShell session with the original physics, rather than the close-contact
+presentation overrides:
+
+```powershell
+$env:STUB = '1'
+$env:BRAKE_DECEL_MPS2 = '1.5'
+$env:INITIAL_HAZARD_DISTANCE_M = '500'
+$env:STUB_SLOW_DELAY_TICKS = '5'
+npm start
+```
+
+Open `http://127.0.0.1:3000/`. Close this PowerShell session after rehearsal
+to discard its shell overrides; restart normally for live continuous driving.
+STUB does not authenticate or make model requests, and cannot run continuous
+contacts or following-traffic encounters. Different physics or delays can
+change the outcomes described below.
 
 Use **Reset** before changing mode or hazard. Speed, outside temperature,
 threshold, and staleness limit stay live. Temperature starts at **12 °C** and
@@ -364,7 +449,8 @@ Reducing the speed manually is an explicit comparison, not a hidden preset chang
 The short ranges do not guarantee time for reasoning or a completed lane change;
 the world and live model latency are not slowed to manufacture an avoidance.
 
-Watch the mirror, **FOLLOWER** range/closing-speed readout, REFLEX, ADVISER and
+Watch the mirror label (lane, range, actual follower speed and positive closing
+speed), REFLEX, ADVISER and
 THE GATE. Radar range, speed and closing speed reach both models as sensor text;
 hidden reaction timing, animal identity and temperature do not.
 Input explicitly names the ego lane, turn progress and all three observed lanes,
@@ -392,7 +478,7 @@ at `INITIAL_HAZARD_DISTANCE_M` in the car's current lane (this rehearsal: **80 m
 ahead**), with seeded elk, small animal or ambiguous descriptions and adjacent
 traffic. One following car starts `FOLLOWING_VEHICLE_DISTANCE_M` behind (this
 rehearsal: **80 m**) at the selected speed, visible even before Start and throughout
-quiet stretches. It uses the staged preset's delayed-braking physics and
+quiet stretches. It uses the same delayed-braking physics as the isolated rear-threat setup and
 **persists across encounters**: its lane, position, speed and reaction state are
 never reset when an animal appears or clears. It may pass in another lane or fall
 behind, even beyond the mirror's range. It stays in its own lane and, once braked
@@ -407,8 +493,7 @@ score. **Stop** ends the run. Explicit staged runs remain single encounters.
 Both views also offer a **Run** control (in the main cockpit control band).
 Cockpit selection resets the world and removes the duration limit for continuous
 driving, preserving all actor/gate tuning settings. The 2D teaching buttons
-**1-4 always return to staged
-moments**, with their original settings. The separate Free drive button and
+**1-4 always return to staged moments**, with their original settings. The separate Free drive button and
 Standard/Rear traffic selector have been removed. The underlying episode engine
 remains internal. Continuous driving is disabled in STUB, including on the server: the checked-in
 slow recommendation fits only the staged scene. It has not been silently reused
@@ -474,7 +559,8 @@ continue rather than risk a worse collision with a dangerous swerve or hard
 braking. Large/uncertain contacts still call for braking when no safer route is
 observed. The fast layer now proposes **gentle slowing** for a known low-risk
 contact in the occupied path when no fast steering route is eligible:
-`GENTLE_DECEL_MPS2` (3 m/s² by default, capped at the emergency setting)
+`GENTLE_DECEL_MPS2` (configured default 3 m/s², capped at the emergency setting;
+4 m/s² in the current local rehearsal)
 toward `GENTLE_SPEED_KMH` (40 km/h by default, capped at selected
 speed). It keeps moving rather than gently stopping, never raises an already
 lower actual speed. The cockpit shows **GENTLE SLOWDOWN**,
@@ -482,17 +568,18 @@ separately from emergency **BRAKING**. The following car reacts to both.
 High-risk/unknown/error/deadline emergency braking and both gate rules remain
 unchanged. A later allowed action releases gentle slowing without a speed jump;
 after the turn clears the path, physical acceleration recovers selected speed.
-At 110 km/h, an 80 m contact is about 2.6 s away without slowing and about 3.1 s
-away under ideal immediate 3 m/s² slowing (the toy resolves at clock boundaries).
+At 110 km/h, an 80 m contact is about 2.6 s away without slowing and about 3.4 s
+away under ideal immediate 4 m/s² slowing (the toy resolves at clock boundaries).
 A three-tick turn still takes 1.2 s. This adds only a little time, not guaranteed
 avoidance or a guarantee that live reasoning arrives in time. Fast-only mode
 still has no slow escape advice. Recordings remain unchanged; their probabilities
 now pass through the updated fast policy.
 
-At 110 km/h, reaching 40 with 3 m/s² slowing needs about 135 m before turning,
-so the local 80 m contact remains a demanding case, not a guaranteed fast escape.
+At 110 km/h, reaching 40 with the local 4 m/s² slowing needs about 101 m before
+turning (about 135 m at 3 m/s²), so the local 80 m contact remains a demanding
+case, not a guaranteed fast escape.
 Earlier sensing or lower starting speed is necessary for that path. The matched
-85 m / controlled 2,000 ms mock in `tests\governed-steering.test.ts` demonstrates
+80 m / controlled 2,000 ms mock in `tests\governed-steering.test.ts` demonstrates
 one case where concurrent slowing plus slow steering avoids an impact that
 fast-only and blocking encounter. It is an illustrative regression, not live
 latency data, a general performance benchmark or a vehicle-safety claim.
@@ -514,8 +601,8 @@ about 150 fast calls (boundary/start effects aside), and the episodes begun in i
 Dwell, gaps and collision pauses reduce this; there is no fixed slow calls/minute
 independent of outcomes. The existing shared **50 ms** live request spacing is
 unchanged. This is a call budget, not a price estimate.
-For example, 20-second active episodes followed by the default roughly 15-second
-gap average about **86 fast + 1.7 slow requests/minute** in a reasoning mode,
+For illustration, assuming 20-second active episodes and 15-second gaps including
+recovery would average about **86 fast + 1.7 slow requests/minute** in a reasoning mode,
 not a measured prediction of live model behavior.
 
 Offline verification of the episode lifecycle uses injected mock services through
@@ -532,7 +619,7 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 | `STUB` | `0` | `1` disables all app network/model authentication calls |
 | `TICK_MS` / `TICK_BUDGET_MS` | `400` / `350` | Fixed clock (minimum 50 ms) and fast deadline; budget must be smaller |
 | `BRAKE_DECEL_MPS2` | `1.5` | Positive gradual braking deceleration |
-| `GENTLE_DECEL_MPS2` | `3` | Low-risk slowdown deceleration, capped at `BRAKE_DECEL_MPS2` (local rehearsal: 3 versus 9 m/s²) |
+| `GENTLE_DECEL_MPS2` | `3` | Low-risk slowdown deceleration, capped at `BRAKE_DECEL_MPS2`; effective default 1.5, local rehearsal 4 versus emergency 9 m/s² |
 | `GENTLE_SPEED_KMH` | `40` | Low-risk slowdown target, capped at selected speed; never accelerates an already slower car |
 | `FAST_SWERVE_SPEED_LIMIT_KMH` | `40` | Fast steering cap, configurable only downward (0..40); gate also enforces temperature |
 | `FAST_LANE_CLEAR_THRESHOLD` | `0.9` | Fast lane-clear screening probability (0.5..1); explicit clear sensor route still required |
@@ -594,11 +681,17 @@ is used only as a client for Foundry's Responses API.
 
 ```powershell
 npm run typecheck
-npm test
+npm run build
+# Explicit compiled tests plus cockpit layout checks:
+node --test (Get-ChildItem dist\tests\*.test.js).FullName tests\cockpit-layout.test.mjs
 # After building, run one test file or one matching test:
 node --test dist\tests\simulation.test.js
 node --test --test-name-pattern="deadline applies" dist\tests\simulation.test.js
 ```
+
+The explicit test list avoids Node 22 discovering source `.ts` tests whose
+`.js` imports have not been emitted beside them. `npm test` currently uses
+bare Node test discovery; the compiled command above is the reliable route.
 
 Tests cover policy boundaries/refusals, independent gate rules, physical outcomes,
 observation privacy, deadline/late-result handling, modes, reset and terminal

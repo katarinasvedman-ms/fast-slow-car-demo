@@ -5,7 +5,6 @@ import { buildObservation, observeScene } from '../src/observation.js';
 import { Simulation } from '../src/simulation.js';
 import { advanceWorld, applyAction, createWorld } from '../src/world.js';
 import { parseSnapshot } from '../client/cockpit/model.js';
-import { scenarioCommands, ScenarioSelection } from '../client/cockpit/controls.js';
 import type { SlowResult } from '../src/types.js';
 import { deferred, fakeModels, flush } from './helpers.js';
 
@@ -85,16 +84,19 @@ test('rear radar and road projection share measured motion, including a follower
   for (let i = 0; i < 4; i++) world = advanceWorld(world, config);
   const scene = observeScene(world, 'elk');
   assert.equal(scene.lanes[1]?.vehicleBehindM, scene.followingVehicle?.distanceBehindM);
+  assert.equal(scene.lanes[1]?.clearAheadM, 100);
   assert.equal(scene.followingVehicle?.closingSpeedKmh, scene.followingVehicle!.speedKmh - world.speedKmh);
   const observation = buildObservation(world, 'elk');
   assert.match(observation, /following vehicle in lane 2, 23 m behind, speed 90 km\/h/);
   assert.match(observation, /relative closing speed 52 km\/h/);
+  assert.match(observation, /Lane 2: vehicle detected 23 m behind; clear ahead to 100 m\./);
   assert.match(observation, /Lane 1: vehicle detected 20 m behind/);
   assert.match(observation, /Lane 3: clear to 100 m/);
   assert.doesNotMatch(observation, /elk|kind|reactionRemaining|1\.6|4\.5|temperature|grip|collisionCause/i);
   const ahead = { ...world, carLane: 3 as const, followingVehicle: { ...world.followingVehicle!, distanceBehindM: -12 } };
   assert.equal(observeScene(ahead, 'elk').lanes[1]?.vehicleAheadM, 12);
   assert.equal(observeScene(ahead, 'elk').lanes[1]?.vehicleBehindM, null);
+  assert.equal(observeScene(ahead, 'elk').lanes[1]?.clearAheadM, null);
   assert.ok(observeScene(ahead, 'elk').followingVehicle!.closingSpeedKmh < 0);
   assert.match(buildObservation(ahead, 'elk'), /Lane 2: vehicle detected 12 m ahead/);
   assert.equal(observeScene(createWorld(config), 'elk').followingVehicle, null);
@@ -145,14 +147,14 @@ test('catching the persistent vehicle ahead is a traffic impact, including an oc
   }
 });
 
-test('rear-threat reasoning remains advisory: fast-only and brake advice can collide, timely gated swerving can clear', async (context) => {
+test('with no confident fast escape, fast-only and brake advice can collide while gated slow swerving can clear', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   for (const action of ['fast_only', 'brake', 'swerve'] as const) {
     let slowCalls = 0;
     const pending = deferred<SlowResult>();
     const inputs: string[] = [];
     const simulation = new Simulation(config, fakeModels({
-      fast: { name: 'Mock reflex', async decide(input) { inputs.push(input); return brake; } },
+      fast: { name: 'Mock reflex', async decide(input) { inputs.push(input); return { ...brake, adjacentLaneClear: 0.8 }; } },
       slow: { name: 'Mock reasoning', advise(input) { inputs.push(input); slowCalls++; return pending.promise; } },
     }), () => Date.now());
     simulation.setEncounter('rear_threat');
@@ -250,13 +252,8 @@ test('rear-threat advice cannot override staleness and Reset cancels it while re
   await flush();
   assert.equal(simulation.snapshot().advice.status, 'idle');
   assert.equal(simulation.snapshot().world.laneChange, null);
-  assert.ok(!scenarioCommands('rear-threat').some((command) => command.command === 'start'));
-  const selection = new ScenarioSelection();
-  selection.choose('rear-threat');
   simulation.setStalenessLimit(10);
-  assert.equal(selection.update(simulation.snapshot()), 'rear-threat');
   simulation.setEncounter('standard');
-  assert.equal(selection.update(simulation.snapshot()), 'custom');
   assert.equal(simulation.snapshot().scene.followingVehicle, null);
   simulation.setEncounter('rear_threat');
   simulation.setRunKind('free');

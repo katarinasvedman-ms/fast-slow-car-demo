@@ -169,13 +169,14 @@ function validSnapshot(value: unknown): value is Snapshot {
     (change === null || (object(change) && lane(change.fromLane) && lane(change.toLane) &&
       finite(change.elapsedTicks) && finite(change.durationTicks) && change.durationTicks > 0 &&
       finite(change.startedAtTick))) &&
-    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'gentleDecelMps2', 'gentleSpeedKmh', 'accelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
+    ['tickMs', 'tickBudgetMs', 'initialHazardDistanceM', 'brakeDecelMps2', 'gentleDecelMps2', 'gentleSpeedKmh', 'fastSwerveSpeedLimit', 'fastLaneClearThreshold', 'accelMps2', 'stalenessLimitTicks', 'swerveSpeedLimit']
       .every((key) => finite(settings[key])) &&
     finite(settings.tickMs) && settings.tickMs > 0 &&
     finite(settings.stalenessLimitTicks) && settings.stalenessLimitTicks >= 0 &&
     ['normal grip', 'frost risk', 'ice risk'].includes(String(settings.swerveTier)) &&
     ['idle', 'pending', 'ready', 'deadline', 'error'].includes(String(fast.status)) &&
     ['majorDamageRisk', 'adjacentLaneClear', 'observedAtTick'].every((key) => nullableNumber(fast[key])) &&
+    laneClearance(fast.laneClear) &&
     finite(fast.latencyMs) && finite(fast.missedDeadlines) &&
     (fast.error === null || typeof fast.error === 'string') &&
     Array.isArray(fast.deadlineTicks) && fast.deadlineTicks.every(finite) &&
@@ -205,6 +206,12 @@ function validSnapshot(value: unknown): value is Snapshot {
     Array.isArray(scene.lanes) && scene.lanes.length === 3 && scene.lanes.every((item: unknown) =>
       object(item) && lane(item.lane) && nullableNumber(item.vehicleBehindM) && nullableNumber(item.clearAheadM) &&
       (item.vehicleAheadM === undefined || finite(item.vehicleAheadM))) &&
+    Array.isArray(value.execution) && value.execution.every((event: unknown) =>
+      object(event) && finite(event.tick) && (event.episodeId === null || episodeId(event.episodeId)) &&
+      ['fast', 'slow'].includes(String(event.source)) &&
+      ['proposed', 'applied', 'refused', 'not_applied', 'completed', 'cancelled'].includes(String(event.phase)) &&
+      (event.action === undefined || ['brake', 'slow_down', 'continue', 'swerve'].includes(String(event.action))) &&
+      (event.toLane === undefined || lane(event.toLane)) && typeof event.detail === 'string') &&
     Array.isArray(value.gate) && value.gate.every((record: unknown) =>
       object(record) && finite(record.atTick) && ['proposal', 'application'].includes(String(record.phase)) &&
       envelope(record.envelope) && decision(record.decision) &&
@@ -212,10 +219,16 @@ function validSnapshot(value: unknown): value is Snapshot {
     Array.isArray(value.log) && value.log.every((entry: unknown) =>
       object(entry) && finite(entry.tick) && typeof entry.detail === 'string' &&
       nullableNumber(entry.majorDamageRisk) && nullableNumber(entry.adjacentLaneClear) &&
+      laneClearance(entry.laneClear) &&
       typeof entry.deadlineMissed === 'boolean' &&
       (entry.scenario === undefined || (object(entry.scenario) &&
         (entry.scenario.episodeId === null || episodeId(entry.scenario.episodeId)) &&
         ['spawn', 'stopped', 'clear', 'passed', 'collision', 'resume', 'finished'].includes(String(entry.scenario.event)))) &&
       (entry.supersession === undefined || (object(entry.supersession) &&
         applied(entry.supersession.previous) && envelope(entry.supersession.envelope))));
+}
+
+function laneClearance(value: unknown): boolean {
+  return value === undefined || (object(value) && ['left', 'right'].every((key) =>
+    value[key] === null || (finite(value[key]) && value[key] >= 0 && value[key] <= 1)));
 }

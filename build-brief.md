@@ -8,10 +8,47 @@ dependency that is not named below.
 
 These decisions override conflicting examples below:
 
+- Live fast input now asks three predicates in one request: damage risk,
+  left-lane clearance and right-lane clearance, relative to the observed ego
+  lane. Steering must meet the existing confidence threshold on its actual
+  target side, never borrow the other side's score, and still pass sensor route
+  checks and the shared gate. Show both scores with observation provenance.
+  Keep the original aggregate recordings unchanged and explicitly labelled;
+  never fabricate per-side scores for replay. Live parsing requires both
+  directional fields. Do not reuse the historical two-question calibration as
+  a measurement of Decision-1.1 or this new request shape.
+- Remove the cockpit Scenario and Hazard selectors and their preset bundles.
+  Continuous contacts come from the seeded sequence, not a selected animal. Expose Run and
+  the individual actor/gate controls with concise explanations instead. Live
+  startup defaults to continuous rear threats, duration 0 (until Stop), without
+  starting inference. Selecting a run type preserves mode, speed, threshold,
+  temperature and staleness. Completed contacts lead to more contacts; impacts
+  retain the explicit inspection pause and Start-from-rest recovery. STUB stays
+  staged; the 2D teaching buttons remain available for single-contact rehearsals.
+- Fast steering is now bounded rather than prohibited. At <=40 km/h, a valid,
+  timely fast answer with adjacent-lane-clear probability >=0.9 may propose a
+  turn into a specific observed-clear adjacent lane. Require clear distance
+  covering the three-tick turn plus 5 m and no competing turn. A tracked rear
+  vehicle is eligible only when its measured gap minus positive closing speed
+  over the turn plus two seconds still leaves at least 20 m; never assume it
+  will brake. Reject traffic ahead, untracked rear vehicles and unknown forward
+  clearance. Prefer right on ties. Use captured sensor data, never hidden
+  identity or ground-truth lane blockage. Revalidate the route at application.
+  Configure stricter caps with FAST_SWERVE_SPEED_LIMIT_KMH (0..40); screening
+  confidence uses FAST_LANE_CLEAR_THRESHOLD (0.5..1). These are actor eligibility
+  constraints, not evidence of real-world safety.
+- Slow reasoning has no actor-specific speed cap. The shared deterministic gate
+  still checks both actors at proposal and application: age first, then current
+  speed against the current temperature limit (and the fast cap for fast turns).
+  There remain only two gate rules. Temperature stays out of model inputs.
+  Keep asynchronous advice optional, same-tick arbitration and all cancellation
+  boundaries. Display separate actor/gate limits and a bounded execution history
+  distinguishing proposals, refusals, allowed-but-not-applied actions,
+  applications, turn completion and cancellation. Reset clears history.
 - Known damage risk below the selected threshold now proposes fast `slow_down`
-  while the sensor contact is in the occupied path, regardless of adjacent-lane
-  probability when known. Decelerate gently toward GENTLE_SPEED_KMH (default
-  50 km/h, capped at selected speed), without stopping or increasing an already
+  when no eligible fast turn exists and the sensor contact is in the occupied
+  path, regardless of adjacent-lane probability when known. Decelerate gently
+  toward GENTLE_SPEED_KMH (default 40 km/h, capped at selected speed), without stopping or increasing an already
   lower actual speed. GENTLE_DECEL_MPS2 defaults to 3 m/s², capped at the configured
   emergency BRAKE_DECEL_MPS2 so the gentle setting is never stronger. The local
   9 m/s² rehearsal therefore uses 3 m/s² gentle slowing. High risk, unknown,
@@ -21,8 +58,8 @@ These decisions override conflicting examples below:
   Emergency brake replaces gentle slowing; allowed swerve/continue releases it
   without jumping speed or cancelling an ongoing turn. Following traffic reacts
   to gentle slowing too. Release the slowdown once clear, with physical recovery
-  only after the turn completes. No fast swerves, new gate rules, model-input
-  identity leaks, artificial model delays, or recording changes.
+  only after the turn completes. No new gate rules, model-input identity leaks,
+  artificial model delays, or recording changes.
 - Retain cancelled continuous-drive assessments instead of erasing their
   observation. Show the cancellation reason/tick, original observation tick,
   and wait duration in both views; freeze age at cancellation and stop the
@@ -33,11 +70,18 @@ These decisions override conflicting examples below:
   to strike them. Occupant/road-user safety takes priority: with no safer observed
   route, continue for a low-mass contact rather than cause a worse crash; brake
   for potentially large/uncertain contacts with no safer route. Keep the known
-  low-risk fast action as gentle slowing, not emergency braking or a swerve.
+  low-risk fast fallback as gentle slowing, not emergency braking.
   Both existing gate rules, same-tick
   priority, physical turn duration, deadlines and unknown/error fallbacks stay
   unchanged. Advice must arrive and physically clear the path in time; never
   manufacture a successful small-animal avoidance or change the recordings.
+- At a full stop before an animal in continuous mode, keep the same contact
+  and episode active. Do not clear the animal, enter dwell/gap, cancel pending
+  slow advice or start more model requests while stopped. Continue clock ticks
+  and traffic physics; pending advice still obeys both gate rules and can
+  release braking into a physical turn. Otherwise stay stopped until presenter
+  intervention, Stop or a configured duration limit. Count a stop only once;
+  a later completed turn reclassifies that avoidance rather than counting twice.
 - Keep **Continuous rear threats (live)** and the staged presets; remove the
   separate Free drive button and Standard/Rear traffic selector in both views.
   The continuous Run option selects rear threats; retain the internal episode
@@ -45,11 +89,11 @@ These decisions override conflicting examples below:
   Start one physical follower at FOLLOWING_VEHICLE_DISTANCE_M (80 m for this
   rehearsal) before Start, including the initial quiet stretch. Preserve its
   actual lane, signed relative distance, speed and reaction state through
-  passage, dwell, quiet stretches and new hazard spawns. Never clear, replace or
+  passage, stopped holds, quiet stretches and new hazard spawns. Never clear, replace or
   re-center it on the ego lane at episode boundaries. It may pass or fall behind,
   even out of view; after braking to rest it remains stopped, not artificially
   following or accelerating to restore its original gap. Skip conflicting seeded
-  static traffic in its lane. Continue traffic movement during a stopped dwell.
+  static traffic in its lane. Continue traffic movement during a stopped hold.
   Traffic impacts in gaps also count once and pause; distinguish catching a
   vehicle ahead from an animal impact. After a collision, Start preserves the
   follower's lane/position; a directly impacted vehicle resumes from rest too.
@@ -91,7 +135,7 @@ These decisions override conflicting examples below:
   encounters may be unavoidable with gentle braking. Any animal struck in an
   occupied lane, including a squirrel, is a collision regardless of predicted
   major damage risk. Models learn of a contact only on its spawn tick; no model work
-  during quiet gaps/dwell. Preserve staged presets and recorded fixtures.
+  during quiet gaps/stopped holds. Preserve staged presets and recorded fixtures.
   Moving animals and additional dynamic traffic beyond the optional following
   vehicle remain deferred.
 - Use one fast model (Foundry `fast-decider`, Microsoft Decision-1) and one slow

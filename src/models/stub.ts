@@ -14,7 +14,7 @@ function samples(value: unknown): RecordedSample[] {
     if (!record(sample) || typeof sample.latencyMs !== 'number' || !Number.isFinite(sample.latencyMs) || sample.latencyMs < 0) {
       throw new Error('Recorded fixture has invalid latency.');
     }
-    parseFastAnswers(sample.answers);
+    parseFastAnswers(sample.answers, 'recorded');
     return { answers: sample.answers, latencyMs: sample.latencyMs };
   });
 }
@@ -70,7 +70,7 @@ export async function createStubModels(): Promise<ModelServices> {
         const sample = recorded[position % recorded.length];
         if (!sample) throw new Error('Recorded sample is missing.');
         await wait(sample.latencyMs, signal);
-        return { ...parseFastAnswers(sample.answers), latencyMs: sample.latencyMs };
+        return { ...parseFastAnswers(sample.answers, 'recorded'), latencyMs: sample.latencyMs };
       },
     },
     slow: {

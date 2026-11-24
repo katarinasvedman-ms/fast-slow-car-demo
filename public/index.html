@@ -90,7 +90,7 @@
     </div>
     <div class="controls">
       <label>Run<select id="run"><option value="staged">Staged moments</option><option value="free" disabled>Continuous rear threats / live only</option></select></label>
-      <label>Drive duration (s; 0 = until Stop)<input id="duration" type="number" min="0" max="3600" step="1" value="120" required></label>
+      <label>Drive duration (s; 0 = until Stop)<input id="duration" type="number" min="0" max="3600" step="1" value="0" required></label>
       <label>Speed <input id="speed" type="range" min="50" max="130" value="110" aria-label="Selected speed"><span id="speed-value">110 km/h selected</span></label>
       <label>Outside temperature (°C)<input id="temperature" type="number" min="-20" max="30" step="any" value="12" required aria-label="Outside temperature"></label>
       <label>Hazard <select id="hazard"><option value="elk">Elk</option><option value="small_animal">Small animal</option><option value="ambiguous">Ambiguous</option></select></label>
@@ -150,8 +150,9 @@
       <div id="damage-bar" class="bar" role="progressbar" aria-labelledby="damage-label" aria-valuemin="0" aria-valuemax="1"><div id="damage-fill" class="fill"></div><div id="threshold-marker" title="Braking threshold"></div></div>
       <div class="stats"><label id="clear-label">Adjacent lane clear</label><strong id="clear-value" class="number">unknown</strong></div>
       <div id="clear-bar" class="bar" role="progressbar" aria-labelledby="clear-label" aria-valuemin="0" aria-valuemax="1"><div id="clear-fill" class="fill"></div></div>
+      <p id="lane-clear-details" class="muted"></p>
       <label>Damage threshold: <strong id="threshold-value">0.35</strong><input id="threshold" type="range" min="0" max="1" step="0.01" value="0.35" aria-label="Damage threshold"></label>
-      <p class="muted">A missed major hazard costs more than unnecessary braking: the threshold is deliberately below 0.5. Known low-risk contacts get a gentle slowdown toward the configured lower speed, not an emergency stop. High-risk, refusal or unknown means brake while the sensed contact is in the occupied path. Once clear of its lane and no longer turning, recover selected speed at the configured acceleration rate.</p>
+      <p class="muted">A missed major hazard costs more than unnecessary braking: the threshold is deliberately below 0.5. Fast may steer at or below 40 km/h with a valid answer and an explicitly observed-clear adjacent route. Otherwise known low-risk contacts get gentle slowing; high risk or unknown means brake in-path. Both actors obey the gate's current temperature and freshness limits. Once clear and no longer turning, recover selected speed.</p>
       <p class="muted">Braking is revisable: a later gate-allowed action can release it. New same-tick fast actions win conflicts; refused advice changes nothing.</p>
       <div class="stats"><span>Missed deadlines</span><strong id="misses" class="number">0</strong></div>
       <p id="deadline-marker" role="status" class="muted">No missed deadlines</p>
@@ -185,6 +186,7 @@
       <ol id="gate-log"></ol>
     </section>
   </div>
+  <section class="card" aria-label="Governed execution"><h2>Governed execution</h2><p id="actor-limits"></p><ol id="execution-history"></ol></section>
   <section class="card"><h2>Tick log</h2><ol id="tick-log" aria-live="off"></ol></section>
   <p class="muted">Toy world, not a driving system. No real-time or vehicle-safety guarantees.</p>
   <script type="module" src="/main.js"></script>

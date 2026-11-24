@@ -6,7 +6,7 @@ import { Simulation } from '../src/simulation.js';
 import type { Snapshot } from '../src/types.js';
 import { fakeModels } from './helpers.js';
 import { ServerResponse } from 'node:http';
-import { scenarioCommands } from '../client/cockpit/controls.js';
+import { runCommands } from '../client/cockpit/controls.js';
 
 test('local HTTP controls and SSE publish the moving world and both gate records', async (context) => {
   const simulation = new Simulation(loadConfig({ TICK_MS: '50', TICK_BUDGET_MS: '40' }), fakeModels());
@@ -143,7 +143,7 @@ test('SSE backpressure retains only the latest snapshot and drains without disco
   await reader.cancel();
 });
 
-test('the continuous rear-threat preset configures live HTTP controls without starting requests', async (context) => {
+test('continuous run selection preserves explicit HTTP tuning controls without starting requests', async (context) => {
   let calls = 0;
   const simulation = new Simulation(loadConfig({ INITIAL_HAZARD_DISTANCE_M: '80' }), fakeModels({
     fast: { name: 'Mock unused', async decide() { calls++; throw new Error('Must not call before Start.'); } },
@@ -157,7 +157,9 @@ test('the continuous rear-threat preset configures live HTTP controls without st
   const post = (body: unknown) => fetch(`${origin}/api/control`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  for (const command of scenarioCommands('continuous-rear-threat')) {
+  for (const command of [
+    { command: 'speed', value: 90 }, { command: 'staleness', value: 6 }, ...runCommands('free'),
+  ]) {
     const response = await post(command);
     assert.equal(response.status, 200, JSON.stringify(command));
   }
@@ -166,8 +168,8 @@ test('the continuous rear-threat preset configures live HTTP controls without st
   assert.equal(ready.drive.kind, 'free');
   assert.equal(ready.drive.durationS, 0);
   assert.equal(ready.world.encounter, 'rear_threat');
-  assert.equal(ready.world.selectedSpeedKmh, 110);
-  assert.equal(ready.settings.stalenessLimitTicks, 10);
+  assert.equal(ready.world.selectedSpeedKmh, 90);
+  assert.equal(ready.settings.stalenessLimitTicks, 6);
   assert.equal(ready.scene.contact, null);
   assert.equal(ready.scene.followingVehicle?.distanceBehindM, 80);
   assert.equal(calls, 0);

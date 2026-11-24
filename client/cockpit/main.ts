@@ -1,6 +1,6 @@
 import { CockpitAudio } from './audio.js';
 import { canStart } from '../drive.js';
-import { createControls, scenarios, scenarioFor, scenarioCommands, ScenarioSelection, sendControl } from './controls.js';
+import { createControls, runCommands, sendControl } from './controls.js';
 import type { Control } from './controls.js';
 import { element, input, renderDash, select } from './dash.js';
 import type { CockpitView } from './model.js';
@@ -15,28 +15,10 @@ let scene: RoadScene | undefined;
 let current: CockpitView | undefined;
 let busy = false;
 let disposed = false;
-let choosingScenario = false;
-const selection = new ScenarioSelection();
-const scenarioSelect = select('scenario');
-scenarioSelect.replaceChildren(...scenarios.map((scenario) => {
-  const option = document.createElement('option');
-  option.value = scenario.id;
-  option.textContent = scenario.name;
-  return option;
-}));
 
 function render(events: Parameters<typeof renderDash>[1] = []): void {
   if (!current) return;
-  renderDash(current, events, busy, choosingScenario);
-  const scenario = scenarioFor(selection.update(current.snapshot));
-  for (const id of ['rear-threat', 'continuous-rear-threat']) {
-    const option = scenarioSelect.querySelector<HTMLOptionElement>(`option[value="${id}"]`);
-    if (option) option.disabled = current.snapshot.backend === 'stub';
-  }
-  scenarioSelect.value = scenario.id;
-  scenarioSelect.disabled = busy;
-  element('scenario-watch').textContent = `What to watch: ${scenario.watch}`;
-  element('caption').textContent = `${scenario.name}: ${scenario.watch}`;
+  renderDash(current, events, busy);
 }
 
 const run = createControls(sendControl, (value) => {
@@ -47,28 +29,12 @@ const run = createControls(sendControl, (value) => {
 function execute(commands: Control[]): void {
   error.textContent = '';
   void run(commands).catch((failure: unknown) => {
-    selection.custom();
     render();
     reportError(failure instanceof Error ? failure.message : 'Control request failed.');
   });
 }
 
-scenarioSelect.addEventListener('change', () => {
-  const scenario = scenarioFor(scenarioSelect.value);
-  selection.choose(scenario.id);
-  if (scenario.id === 'custom') { render(); return; }
-  choosingScenario = true;
-  render();
-  error.textContent = '';
-  void run(scenarioCommands(scenario.id)).catch((failure: unknown) => {
-    selection.custom();
-    reportError(failure instanceof Error ? failure.message : 'Scenario controls failed.');
-  }).finally(() => { choosingScenario = false; render(); });
-});
-
 function tune(commands: Control[]): void {
-  selection.custom();
-  render();
   execute(commands);
 }
 
@@ -91,23 +57,12 @@ element('reset').addEventListener('click', () => execute([{ command: 'reset' }])
 element('stop').addEventListener('click', () => execute([{ command: 'stop' }]));
 select('run').addEventListener('change', () => {
   const value = select('run').value;
-  if (value === 'free' || value === 'staged') tune([
-    { command: 'reset' }, { command: 'run', value },
-    ...(value === 'free' ? [
-      { command: 'mode', value: 'async_gated' } as const,
-      { command: 'encounter', value: 'rear_threat' } as const,
-      { command: 'duration', value: 0 } as const,
-    ] : []),
-  ]);
+  if (value === 'free' || value === 'staged') tune(runCommands(value));
 });
 element('mute').addEventListener('click', mute);
 select('mode').addEventListener('change', () => {
   const value = select('mode').value;
   if (value === 'fast_only' || value === 'blocking' || value === 'async_gated') tune([{ command: 'mode', value }]);
-});
-select('hazard').addEventListener('change', () => {
-  const value = select('hazard').value;
-  if (value === 'elk' || value === 'small_animal' || value === 'ambiguous') tune([{ command: 'hazard', value }]);
 });
 for (const [command, ids] of [
   ['speed', ['speed', 'speed-number']],

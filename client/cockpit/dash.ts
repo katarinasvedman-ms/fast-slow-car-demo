@@ -1,5 +1,5 @@
 import type { CockpitEvent, CockpitView } from './model.js';
-import { canStart, renderDrive } from '../drive.js';
+import { canStart, renderDrive, renderExecution, renderLaneClearance } from '../drive.js';
 import { freshnessPositions } from './model.js';
 
 export function element(id: string): HTMLElement {
@@ -43,10 +43,23 @@ function animate(id: string, name: string): void {
   }
 }
 
-export function renderDash(view: CockpitView, events: CockpitEvent[], busy: boolean, tuningLocked = false): void {
+export function renderDash(view: CockpitView, events: CockpitEvent[], busy: boolean, tuningLocked = busy): void {
   const { snapshot, identity } = view;
   const { world, fast, advice, settings } = snapshot;
   renderDrive(snapshot, busy);
+  renderExecution(snapshot);
+  renderLaneClearance(snapshot);
+  const modeHelp = {
+    fast_only: 'Fast actions only. No slow requests.',
+    blocking: 'Wait for slow advice; fast actions pause, physical motion does not.',
+    async_gated: 'Fast keeps acting while slow thinks. The gate can refuse either actor.',
+  };
+  text('mode-help', modeHelp[snapshot.mode]);
+  const runHelp = snapshot.backend === 'stub' ? 'Offline recordings: one staged contact. Continuous driving requires live models.'
+    : snapshot.drive.kind === 'staged' ? 'Single contact, then motion freezes. Choose Continuous to keep driving.'
+    : `Seeded mix of contacts. ${snapshot.drive.durationS === 0 ? 'Runs until Stop.' : `Time limit: ${snapshot.drive.durationS} running seconds.`} Impacts pause; Start resumes from rest. Reset keeps your controls.`;
+  text('run-help', runHelp);
+  text('caption', `${runHelp} ${modeHelp[snapshot.mode]}`);
   text('backend', snapshot.backend === 'stub' ? 'STUB / OFFLINE' : 'LIVE / FOUNDRY');
   text('tick', `TICK ${world.tick} / ${settings.tickMs} ms`);
   text('speed-value', world.speedKmh.toFixed(0));
@@ -58,9 +71,10 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   text('distance', snapshot.scene.contact ? `${snapshot.scene.contact.rangeM.toFixed(0)} m` : '-- m');
   text('motion-status', snapshot.drive.phase === 'collision' ? 'COLLISION / PRESS START'
     : snapshot.drive.phase === 'finished' ? 'DRIVE COMPLETE'
-    : snapshot.drive.phase === 'dwell' ? `SCENARIO CLEAR IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
+    : snapshot.drive.phase === 'dwell' ? `CONTACT CLEARS IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
     : snapshot.drive.phase === 'gap' ? `QUIET ROAD / ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
     : !snapshot.started && world.tick === 0 ? 'READY TO START'
+    : snapshot.drive.kind === 'free' && world.outcome === 'braked' ? 'STOPPED / ANIMAL RETAINED'
     : world.outcome !== 'running' ? world.outcome.toUpperCase()
       : world.laneChange ? `CHANGING TO LANE ${world.laneChange.toLane}`
       : world.speedKmh === 0 && snapshot.scene.followingVehicle ? 'STOPPED / WATCH REAR'
@@ -206,7 +220,9 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   element('cockpit').classList.toggle('braking', world.braking);
   element('outcome-card').hidden = world.outcome === 'running';
   text('outcome-title', world.outcome.toUpperCase());
-  text('outcome-detail', snapshot.drive.kind === 'free' ? 'Free-drive scenario lifecycle; see running-time status and scenario log.'
+  text('outcome-detail', snapshot.drive.kind === 'free' ? world.outcome === 'collision'
+    ? 'Impact paused the continuous run. Start resumes from rest.'
+    : 'Continuous driving: this contact will clear, then the next encounter follows.'
     : world.outcome === 'braked' ? 'Stopped. Pending allowed advice may still revise braking.'
     : 'Physical world frozen. Reset to rehearse again.');
   text('observation', snapshot.observation);
@@ -216,10 +232,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   const resetRequired = snapshot.started || world.tick !== 0 || snapshot.drive.phase !== 'idle';
   const locked = busy || resetRequired;
   select('mode').disabled = locked;
-  select('hazard').disabled = locked || snapshot.drive.kind === 'free';
   select('mode').value = snapshot.mode;
-  select('hazard').value = snapshot.hazardVariant ?? '';
-  select('hazard').closest('label')?.toggleAttribute('hidden', snapshot.drive.kind === 'free');
   element('reset-help').hidden = !resetRequired;
   text('temperature-help', `${settings.swerveTier} / ${settings.swerveSpeedLimit} km/h`);
   const outsideSliderRange = settings.stalenessLimitTicks > 10;

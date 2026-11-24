@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mapSnapshot, EventTracker, parseSnapshot, freshnessPositions, contactPosition } from '../client/cockpit/model.js';
-import { createControls, scenarioCommands, scenarios, ScenarioSelection, sendControl } from '../client/cockpit/controls.js';
+import { createControls, runCommands, sendControl } from '../client/cockpit/controls.js';
 import type { Control } from '../client/cockpit/controls.js';
 import { loadConfig } from '../src/config.js';
 import { Simulation } from '../src/simulation.js';
@@ -152,6 +152,10 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   gentle.world.slowing = true;
   gentle.gate = [{ ...record(), envelope: { ...record().envelope, action: 'slow_down', source: 'fast' }, decision: { allowed: true } }];
   assert.deepEqual(parseSnapshot(JSON.stringify(gentle)), gentle);
+  gentle.fast.laneClear = { left: null, right: 0.95 };
+  gentle.log = [{ tick: 0, detail: 'Directional result', majorDamageRisk: 0.1, adjacentLaneClear: 0.95,
+    laneClear: { left: null, right: 0.95 }, deadlineMissed: false }];
+  assert.deepEqual(parseSnapshot(JSON.stringify(gentle)), gentle);
   assert.throws(() => parseSnapshot('{"world":{}}'), /Invalid cockpit state/);
   value.advice.gate = { allowed: false, reasons: [{ reason: 'stale_advice', detail: 'Stale.' }] };
   const malformed = JSON.parse(JSON.stringify(value));
@@ -160,7 +164,15 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   for (const mutate of [
     (state: Snapshot) => { state.drive.episodeId = -1; },
     (state: Snapshot) => { state.drive.score.collisions = NaN; },
+    (state: Snapshot) => { state.fast.laneClear = { left: 1.1, right: 0.95 }; },
+    (state: Snapshot) => {
+      state.log = [{ tick: 0, detail: 'Invalid side score', majorDamageRisk: 0.1, adjacentLaneClear: 0.95,
+        laneClear: { left: 0.95, right: -0.1 }, deadlineMissed: false }];
+    },
     (state: Snapshot) => { state.scene.contact = { lane: 2, rangeM: NaN }; },
+    (state: Snapshot) => {
+      state.execution = [{ tick: 1, episodeId: null, source: 'fast', phase: 'invented' as 'applied', detail: 'Invalid execution phase.' }];
+    },
     (state: Snapshot) => {
       state.scene.followingVehicle = { lane: 2, distanceBehindM: 10, speedKmh: NaN, closingSpeedKmh: 20 };
     },
@@ -171,7 +183,7 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   }
 });
 
-test('presenter serializes preset controls, waits before Start, and stops a failing preset', async () => {
+test('presenter serializes direct controls, waits before Start, and stops a failing control sequence', async () => {
   const sent: Control[] = [];
   const busy: boolean[] = [];
   const pending = deferred<void>();
@@ -179,66 +191,53 @@ test('presenter serializes preset controls, waits before Start, and stops a fail
     sent.push(command);
     if (sent.length === 1) await pending.promise;
   }, (value) => busy.push(value));
-  const preset = run(scenarioCommands('allowed-swerve'));
+  const changes = run(runCommands('free'));
   const start = run([{ command: 'start' }]);
   await Promise.resolve();
   assert.deepEqual(sent, [{ command: 'reset' }]);
   pending.resolve();
-  await Promise.all([preset, start]);
-  assert.deepEqual(sent, [...scenarioCommands('allowed-swerve'), { command: 'start' }]);
+  await Promise.all([changes, start]);
+  assert.deepEqual(sent, [...runCommands('free'), { command: 'start' }]);
   assert.deepEqual(busy, [true, false, true, false]);
-  for (const scenario of scenarios) assert.ok(!scenarioCommands(scenario.id).some((command) => command.command === 'start'));
-  assert.deepEqual(scenarioCommands('custom'), []);
   const failed: Control[] = [];
   const runFailure = createControls(async (command) => {
     failed.push(command);
-    if (command.command === 'mode') throw new Error('Control rejected.');
+    if (command.command === 'run') throw new Error('Control rejected.');
   }, () => {});
-  await assert.rejects(runFailure(scenarioCommands('late-advice-refused')), /Control rejected/);
-  assert.deepEqual(failed.map((command) => command.command), ['reset', 'run', 'mode']);
+  await assert.rejects(runFailure(runCommands('free')), /Control rejected/);
+  assert.deepEqual(failed.map((command) => command.command), ['reset', 'run']);
   await runFailure([{ command: 'reset' }]);
-  assert.equal(failed.length, 4);
+  assert.equal(failed.length, 3);
 });
 
-test('scenario labels wait for matching authoritative settings and return to Custom after an edit', () => {
-  const selection = new ScenarioSelection();
-  const state = snapshot();
-  assert.equal(selection.update(state), 'custom');
-  selection.choose('allowed-swerve');
-  assert.equal(selection.update(state), 'custom');
-  state.settings.stalenessLimitTicks = 6;
-  state.world.selectedSpeedKmh = 90;
-  assert.equal(selection.update(state), 'allowed-swerve');
-  state.world.speedKmh = 30;
-  state.world.tick = 20;
-  assert.equal(selection.update(state), 'allowed-swerve');
-  state.world.selectedSpeedKmh = 100;
-  assert.equal(selection.update(state), 'custom');
-  selection.choose('allowed-swerve');
-  selection.custom();
-  state.world.selectedSpeedKmh = 90;
-  assert.equal(selection.update(state), 'custom');
-});
-
-test('continuous preset matches episode snapshots without a selected hazard and respects duration edits', () => {
-  const selection = new ScenarioSelection();
+test('run selection changes only run settings and preserves individually chosen actor and gate controls', async () => {
   const simulation = new Simulation(loadConfig({}), fakeModels());
-  simulation.setRunKind('free');
-  simulation.setEncounter('rear_threat');
-  simulation.setStalenessLimit(10);
-  selection.choose('continuous-rear-threat');
-  assert.equal(selection.update(simulation.snapshot()), 'custom');
-  simulation.setDriveDuration(0);
-  assert.equal(selection.update(simulation.snapshot()), 'continuous-rear-threat');
-  const episode = simulation.snapshot();
-  episode.drive.phase = 'episode';
-  episode.drive.episodeId = 2;
-  episode.world.carLane = 3;
-  episode.world.speedKmh = 40;
-  assert.equal(episode.hazardVariant, null);
-  assert.equal(selection.update(episode), 'continuous-rear-threat');
+  simulation.setMode('blocking');
+  simulation.setSpeed(90);
+  simulation.setTemperature(-4);
+  simulation.setThreshold(0.5);
+  simulation.setStalenessLimit(6);
   simulation.setDriveDuration(120);
-  assert.equal(selection.update(simulation.snapshot()), 'custom');
+  const run = createControls(async (control) => {
+    if (control.command === 'reset') simulation.reset();
+    else if (control.command === 'run') simulation.setRunKind(control.value);
+    else if (control.command === 'encounter') simulation.setEncounter(control.value);
+    else if (control.command === 'duration') simulation.setDriveDuration(control.value);
+    else assert.fail('Run selection must not change actor or gate controls or start model work.');
+  }, () => {});
+  for (const kind of ['free', 'staged'] as const) {
+    await run(runCommands(kind));
+    const state = simulation.snapshot();
+    assert.equal(state.drive.kind, kind);
+    assert.equal(state.drive.durationS, 0);
+    assert.equal(state.world.encounter, kind === 'free' ? 'rear_threat' : 'standard');
+    assert.equal(state.mode, 'blocking');
+    assert.equal(state.world.selectedSpeedKmh, 90);
+    assert.equal(state.world.ambientTempC, -4);
+    assert.equal(state.threshold, 0.5);
+    assert.equal(state.settings.stalenessLimitTicks, 6);
+    assert.equal(state.started, false);
+  }
   simulation.dispose();
 });
 

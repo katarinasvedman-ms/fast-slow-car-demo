@@ -2,11 +2,11 @@ import type { Config } from './config.js';
 import { buildObservation, observeScene, senseContact } from './observation.js';
 import { emptyDrive, nextGap, nextHazard, nextSpawnDistance } from './drive.js';
 import { evaluateGate } from './gate.js';
-import { fastAction, hazardInPath, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
+import { fastAction, fastLaneEligible, fastProposal, hazardInPath, swerveSpeedLimitFor, swerveTierFor } from './policy.js';
 import type { ModelServices } from './models/live.js';
 import type {
   ActionEnvelope, AppliedAction, Encounter, GateDecision, GateRecord, HazardVariant, Mode,
-  DriveView, RunKind, SlowResult, Snapshot, TickEntry, WorldState,
+  DriveView, ExecutionEvent, RunKind, SlowResult, Snapshot, TickEntry, WorldState,
 } from './types.js';
 import { advanceWorld, applyAction, createWorld, publicWorld, setWorldSpeed } from './world.js';
 
@@ -47,6 +47,9 @@ export class Simulation {
   private phaseUntilTick = 0;
   private driveTicks = 0;
   private slowEpisodeId: number | null = null;
+  private stoppedAtContact = false;
+  private execution: ExecutionEvent[] = [];
+  private turnOwner: ActionEnvelope | null = null;
 
   constructor(
     private readonly config: Config,
@@ -89,6 +92,8 @@ export class Simulation {
         brakeDecelMps2: this.config.brakeDecelMps2,
         gentleDecelMps2: this.config.gentleDecelMps2,
         gentleSpeedKmh: this.config.gentleSpeedKmh,
+        fastSwerveSpeedLimit: this.config.fastSwerveSpeedLimit,
+        fastLaneClearThreshold: this.config.fastLaneClearThreshold,
         accelMps2: this.config.accelMps2,
         stalenessLimitTicks: this.stalenessLimitTicks,
         swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
@@ -97,6 +102,7 @@ export class Simulation {
       log: structuredClone(this.log),
       gate: structuredClone(this.gate),
       actionStatus: this.actionStatus,
+      execution: structuredClone(this.execution),
       fast: structuredClone(this.fast),
       advice: structuredClone(this.advice),
     };
@@ -151,6 +157,9 @@ export class Simulation {
     this.driveTicks = 0;
     this.phaseUntilTick = 0;
     this.slowEpisodeId = null;
+    this.stoppedAtContact = false;
+    this.execution = [];
+    this.turnOwner = null;
     this.publish();
   }
 
@@ -262,22 +271,24 @@ export class Simulation {
   private cancelPendingAdvice(reason: NonNullable<Snapshot['advice']['cancellation']>['reason']): void {
     if (this.advice.status === 'thinking') {
       this.advice = { ...this.advice, status: 'cancelled', cancellation: { atTick: this.world.tick, reason } };
+      this.recordExecution('slow', 'cancelled', `SLOW reasoning cancelled: ${reason.replaceAll('_', ' ')}; no answer received.`);
     }
   }
 
   private advance(): void {
+    const turning = this.world.laneChange;
     this.world = advanceWorld(this.world, this.config);
+    if (turning && !this.world.laneChange && this.world.carLane === turning.toLane && this.world.outcome !== 'collision') {
+      if (this.turnOwner) this.recordExecution(this.turnOwner.source, 'completed', `Turn ${turning.fromLane} -> ${turning.toLane} completed.`, this.turnOwner);
+      this.turnOwner = null;
+    }
     if (this.drive.kind === 'free') {
       this.driveTicks += 1;
       this.drive.elapsedS = this.driveTicks * this.config.tickMs / 1000;
       this.resolveEpisode();
       if (this.drive.durationS > 0 && this.drive.elapsedS >= this.drive.durationS) this.finishDrive('duration');
-      else if (this.drive.phase === 'episode') this.beginTick();
-      else if (this.drive.phase === 'dwell' && this.world.tick >= this.phaseUntilTick) {
-        this.world = { ...this.world, braking: false, slowing: false, outcome: 'running', hazardActive: false };
-        this.scenario('clear', 'Stopped animal contact cleared by scenario, not model output; following traffic persists; accelerating during the gap.');
-        this.waitForGap();
-      } else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick && this.recoverySeconds() === 0) {
+      else if (this.drive.phase === 'episode' && this.world.outcome === 'running' && !this.stoppedInPath()) this.beginTick();
+      else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick && this.recoverySeconds() === 0) {
         this.spawnEpisode();
         this.beginTick();
       }
@@ -349,31 +360,44 @@ export class Simulation {
       adjacentLanesBlocked: next.blocked.filter((lane) => lane !== previous.followingVehicle?.lane),
     };
     this.drive.episodeId = (this.drive.episodeId ?? 0) + 1;
+    this.stoppedAtContact = false;
     this.drive.phase = 'episode';
     this.drive.score.hazardsFaced += 1;
     this.fast = { ...this.emptyFast(), missedDeadlines: this.fast.missedDeadlines, deadlineTicks: this.fast.deadlineTicks };
     this.advice = this.emptyAdvice();
     this.appliedAction = null;
+    this.turnOwner = null;
     this.scenario('spawn', `New sensor contact in lane ${this.world.carLane} at ${Math.round(this.world.hazard.distanceM)} m; seeded adjacent traffic. Existing following traffic unchanged.`);
   }
 
   private resolveEpisode(): void {
-    if (this.world.outcome === 'running' ||
+    const stopped = this.stoppedInPath();
+    if ((this.world.outcome === 'running' && !stopped) ||
         (this.drive.phase !== 'episode' &&
           !(this.world.outcome === 'collision' && (this.drive.phase === 'gap' || this.drive.phase === 'dwell')))) return;
+    if (stopped) {
+      if (!this.stoppedAtContact) {
+        this.stoppedAtContact = true;
+        this.drive.score.avoidedByBraking += 1;
+        this.cancelFastRequests();
+        if (this.fast.status === 'pending') this.fast.status = 'idle';
+        this.scenario('stopped', 'Stopped before contact. Animal and encounter retained; pending slow advice can still be checked. No automatic clearance or new requests while stopped.');
+      }
+      return;
+    }
     this.cancelRequests();
     this.cancelPendingAdvice(this.world.outcome === 'collision' ? 'collision' : 'episode_ended');
     if (this.fast.status === 'pending') this.fast.status = 'idle';
     const outcome = this.world.outcome;
+    if (this.stoppedAtContact) {
+      this.drive.score.avoidedByBraking -= 1;
+      this.stoppedAtContact = false;
+    }
     if (outcome === 'collision') {
       this.drive.score.collisions += 1;
       this.drive.phase = 'collision';
       this.scenario('collision', 'Collision counted. Run paused; Start resumes from rest.');
       this.stop();
-    } else if (outcome === 'braked') {
-      this.drive.score.avoidedByBraking += 1;
-      this.waitFor('dwell', this.config.driveDwellS);
-      this.scenario('stopped', 'Stopped before contact. Waiting for scenario clearance; episode work cancelled.');
     } else {
       if (outcome === 'swerved') this.drive.score.avoidedBySwerving += 1;
       this.scenario('passed', `Contact passed (${outcome}); episode work cancelled; following traffic persists.`);
@@ -396,6 +420,11 @@ export class Simulation {
     return hazardInPath(senseContact(this.world), this.world);
   }
 
+  private stoppedInPath(): boolean {
+    return (this.world.outcome === 'running' || this.world.outcome === 'braked') &&
+      this.world.speedKmh === 0 && this.world.laneChange === null && this.inPath();
+  }
+
   private defaultFastAction(): ActionEnvelope['action'] {
     return fastAction({ majorDamageRisk: null, adjacentLaneClear: null, latencyMs: 0 }, this.threshold, this.inPath());
   }
@@ -408,6 +437,8 @@ export class Simulation {
     this.log.unshift(entry);
     this.log.length = Math.min(this.log.length, 40);
     const observation = buildObservation(this.world, this.hazardVariant);
+    const scene = observeScene(this.world, this.hazardVariant);
+    const car = { carLane: this.world.carLane, speedKmh: this.world.speedKmh, laneChange: this.world.laneChange };
     this.capturedObservation = { tick: this.world.tick, text: observation };
     if (
       this.mode !== 'fast_only' && !this.queuedSlow &&
@@ -439,13 +470,19 @@ export class Simulation {
             ...this.fast, majorDamageRisk: result.majorDamageRisk, adjacentLaneClear: result.adjacentLaneClear,
             latencyMs: result.latencyMs, status: 'ready', observedAtTick: flight.tick, error: null,
           };
+          if (result.laneClear) this.fast.laneClear = { ...result.laneClear };
+          else delete this.fast.laneClear;
           entry.majorDamageRisk = result.majorDamageRisk;
           entry.adjacentLaneClear = result.adjacentLaneClear;
+          if (result.laneClear) entry.laneClear = { ...result.laneClear };
           if (flight.suppressed) entry.detail += '; action suppressed while blocking';
-          else this.applyEnvelope(
-            this.envelope(fastAction(result, this.threshold, this.inPath()), 'fast', flight.tick), entry, undefined,
-            result.majorDamageRisk === null || result.adjacentLaneClear === null,
-          );
+          else {
+            const proposal = fastProposal(result, this.threshold, scene, car, this.config);
+            this.applyEnvelope(
+              this.envelope(proposal.action, 'fast', flight.tick, proposal.targetLane), entry, undefined,
+              result.majorDamageRisk === null || result.adjacentLaneClear === null,
+            );
+          }
         }
         this.finishFast(flight);
       },
@@ -593,11 +630,21 @@ export class Simulation {
       swerveSpeedLimit: swerveSpeedLimitFor(this.world.ambientTempC, this.config),
       swerveTier: swerveTierFor(this.world.ambientTempC, this.config),
       ambientTempC: this.world.ambientTempC,
+      fastSwerveSpeedLimit: this.config.fastSwerveSpeedLimit,
     });
     const record = { phase, atTick: this.world.tick, envelope: current, decision };
     this.gate.unshift(record);
     this.gate.length = Math.min(this.gate.length, 20);
     return record;
+  }
+
+  private recordExecution(source: ExecutionEvent['source'], phase: ExecutionEvent['phase'], detail: string, envelope?: ActionEnvelope): void {
+    this.execution.push({
+      tick: this.world.tick, episodeId: this.drive.kind === 'free' ? this.drive.episodeId : null,
+      source, phase, detail,
+      ...(envelope ? { action: envelope.action, ...(envelope.toLane === undefined ? {} : { toLane: envelope.toLane }) } : {}),
+    });
+    this.execution = this.execution.slice(-24);
   }
 
   private applyEnvelope(
@@ -614,7 +661,12 @@ export class Simulation {
     const action = envelope.action.replaceAll('_', ' ');
     const previousAction = previous?.envelope.action.replaceAll('_', ' ');
     const sameAction = previous?.envelope.action === envelope.action && previous.envelope.toLane === envelope.toLane;
+    const trace = envelope.source === 'slow' || !sameAction || safetyFallback;
+    if (trace) this.recordExecution(envelope.source, 'proposed',
+      `${envelope.source.toUpperCase()} proposes ${action}${envelope.toLane === undefined ? '' : ` lane ${envelope.toLane}`}.`, envelope);
+    let executionPhase: ExecutionEvent['phase'] = 'not_applied';
     if (!proposed.allowed || !applied.allowed) {
+      executionPhase = 'refused';
       const reasons = !applied.allowed ? applied.reasons : !proposed.allowed ? proposed.reasons : [];
       this.actionStatus = `${envelope.source} ${action} refused: ${reasons.map((reason) => reason.reason).join(' + ')}.`;
     } else if (this.world.outcome !== 'running' && this.world.outcome !== 'braked') {
@@ -626,15 +678,23 @@ export class Simulation {
       previous.atTick === this.world.tick && !sameAction
     ) {
       this.actionStatus = `slow ${action} allowed, not applied: fast ${previousAction} wins the same-tick conflict.`;
+    } else if (envelope.action === 'swerve' && this.world.laneChange && envelope.toLane !== this.world.laneChange.toLane) {
+      this.actionStatus = `${envelope.source} swerve allowed, not applied: another turn is already in progress.`;
     } else if (envelope.action === 'swerve' && (envelope.toLane === undefined || Math.abs(envelope.toLane - this.world.carLane) !== 1)) {
-      this.actionStatus = 'Slow swerve not applied: target lane is not adjacent.';
-      this.advice.error = this.actionStatus;
+      this.actionStatus = `${envelope.source} swerve not applied: target lane is not adjacent.`;
+      if (envelope.source === 'slow') this.advice.error = this.actionStatus;
+    } else if (envelope.source === 'fast' && envelope.action === 'swerve' &&
+      !fastLaneEligible(observeScene(this.world, this.hazardVariant), this.world, envelope.toLane!, this.config.tickMs)) {
+      this.actionStatus = 'fast swerve allowed by gate, not applied: target route is no longer eligible.';
     } else if (sameAction && !safetyFallback) {
       // Reaffirming an engaged action does not move its original application tick.
       this.actionStatus = `${envelope.source} ${action} unchanged; applied at tick ${previous.atTick}.`;
     } else {
+      executionPhase = 'applied';
       const fromLane = this.world.carLane;
+      const alreadyTurning = this.world.laneChange !== null;
       this.world = applyAction(this.world, envelope.action, envelope.toLane);
+      if (!alreadyTurning && this.world.laneChange) this.turnOwner = envelope;
       this.appliedAction = { atTick: this.world.tick, envelope: { ...envelope, speedKmh: this.world.speedKmh } };
       this.actionStatus = `${envelope.source} ${action} applied.`;
       if (previous && previous.atTick < this.world.tick) {
@@ -653,6 +713,8 @@ export class Simulation {
         this.log.length = Math.min(this.log.length, 40);
       }
     }
+    if (trace) this.recordExecution(envelope.source, executionPhase,
+      `${proposed.allowed && applied.allowed ? 'GATE ALLOWED' : 'GATE REFUSED'} / ${this.actionStatus}`, envelope);
     if (entry) entry.detail += `; ${this.actionStatus}`;
     if (envelope.source === 'slow') {
       this.advice.gate = !proposed.allowed ? proposed : applied;
@@ -678,13 +740,17 @@ export class Simulation {
     if (this.world.outcome !== 'running' && this.advice.status !== 'thinking' && !this.queuedSlow) this.stop();
   }
 
-  private cancelRequests(): void {
-    this.generation += 1;
+  private cancelFastRequests(): void {
     for (const flight of this.fastFlights) {
       clearTimeout(flight.deadline);
       flight.controller.abort();
     }
     this.fastFlights.clear();
+  }
+
+  private cancelRequests(): void {
+    this.generation += 1;
+    this.cancelFastRequests();
     if (this.slowFlight) {
       clearTimeout(this.slowFlight.timeout);
       this.slowFlight.controller.abort();

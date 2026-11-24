@@ -15,10 +15,14 @@ export function evaluateGate(
       detail: `Observation age ${age} ticks exceeds ${policy.stalenessLimitTicks}.`,
     });
   }
-  if (envelope.action === 'swerve' && currentSpeedKmh > policy.swerveSpeedLimit) {
+  const speedLimit = envelope.source === 'fast'
+    ? Math.min(policy.fastSwerveSpeedLimit, policy.swerveSpeedLimit) : policy.swerveSpeedLimit;
+  if (envelope.action === 'swerve' && currentSpeedKmh > speedLimit) {
     reasons.push({
       reason: 'prohibited_action',
-      detail: `Swerve at ${currentSpeedKmh.toFixed(1)} km/h exceeds ${policy.swerveSpeedLimit} km/h limit for ${policy.swerveTier} (${policy.ambientTempC} °C).`,
+      detail: envelope.source === 'fast' && policy.fastSwerveSpeedLimit < policy.swerveSpeedLimit
+        ? `Fast swerve at ${currentSpeedKmh.toFixed(1)} km/h exceeds ${speedLimit} km/h actor cap; temperature limit ${policy.swerveSpeedLimit} km/h.`
+        : `Swerve at ${currentSpeedKmh.toFixed(1)} km/h exceeds ${speedLimit} km/h limit for ${policy.swerveTier} (${policy.ambientTempC} °C).`,
     });
   }
   const [first, ...rest] = reasons;

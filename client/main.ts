@@ -1,5 +1,5 @@
 import type { Snapshot } from '../src/types.js';
-import { canStart, renderDrive } from './drive.js';
+import { canStart, renderDrive, renderExecution, renderLaneClearance } from './drive.js';
 
 function element(id: string): HTMLElement {
   const found = document.getElementById(id);
@@ -32,6 +32,8 @@ function render(snapshot: Snapshot): void {
   latestSnapshot = snapshot;
   const world = snapshot.world;
   renderDrive(snapshot, choosingRun);
+  renderExecution(snapshot);
+  renderLaneClearance(snapshot);
   if (document.activeElement !== speed) speed.value = String(world.selectedSpeedKmh);
   if (document.activeElement !== temperature) temperature.value = String(world.ambientTempC);
   hazard.value = snapshot.hazardVariant ?? '';
@@ -164,7 +166,7 @@ function render(snapshot: Snapshot): void {
     const blocked = lane.vehicleBehindM !== null || lane.vehicleAheadM !== undefined;
     const status = element(`lane-${lane.lane}-status`);
     status.textContent = lane.lane === world.carLane
-      ? blocked ? 'EGO / BLOCKED' : 'EGO LANE' : blocked ? 'BLOCKED' : 'CLEAR';
+      ? blocked ? 'EGO / TRAFFIC' : 'EGO LANE' : blocked ? 'TRAFFIC' : 'CLEAR';
     status.setAttribute('fill', blocked ? '#f87171' : lane.lane === world.carLane ? '#dedede' : '#4ade80');
     const vehicle = element(`vehicle-${lane.lane}`);
     vehicle.setAttribute('visibility', blocked ? 'visible' : 'hidden');
@@ -174,7 +176,7 @@ function render(snapshot: Snapshot): void {
     vehicle.setAttribute('aria-label', `Vehicle in lane ${lane.lane}, ${vehicleLabel}`);
     element(`vehicle-${lane.lane}-distance`).textContent = vehicleLabel;
     const clearance = element(`lane-${lane.lane}-clearance`);
-    clearance.setAttribute('visibility', lane.lane !== world.carLane && !blocked ? 'visible' : 'hidden');
+    clearance.setAttribute('visibility', lane.lane !== world.carLane && lane.clearAheadM !== null ? 'visible' : 'hidden');
     const top = roadY(lane.clearAheadM ?? 0);
     const zone = element(`lane-${lane.lane}-clear-zone`);
     zone.setAttribute('y', String(top));
@@ -190,7 +192,9 @@ function render(snapshot: Snapshot): void {
     const probability = (value: number | null) => value === null ? '?' : value.toFixed(2);
     row.className = entry.supersession ? 'supersession' : entry.scenario ? 'scenario' : '';
     row.textContent = entry.supersession ? `#${entry.tick} ${entry.detail}`
-      : `#${entry.tick} risk=${probability(entry.majorDamageRisk)} clear=${probability(entry.adjacentLaneClear)} / ${entry.detail}`;
+      : `#${entry.tick} risk=${probability(entry.majorDamageRisk)} clear=${probability(entry.adjacentLaneClear)}` +
+        (entry.laneClear ? ` left=${probability(entry.laneClear.left)} right=${probability(entry.laneClear.right)}` : '') +
+        ` / ${entry.detail}`;
     return row;
   }));
   element('action-status').textContent = snapshot.actionStatus;

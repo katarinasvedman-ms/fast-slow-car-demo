@@ -5,6 +5,7 @@ import { buildObservation } from '../src/observation.js';
 import { createWorld } from '../src/world.js';
 import { foundryQuestions } from '../src/models/questions.js';
 import { azureCredential } from '../src/models/auth.js';
+import { parseFastAnswers } from '../src/models/live.js';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
       if (!body || typeof body !== 'object' || !('answers' in body)) {
         throw new Error('Decision-1 returned no answers.');
       }
+      parseFastAnswers(body.answers);
       const latencyMs = performance.now() - started;
       samples.push({ latencyMs, answers: body.answers });
       console.log(`${request}/20: ${latencyMs.toFixed(1)} ms`);
@@ -67,7 +69,7 @@ async function main(): Promise<void> {
   const tickMs = p95Ms > 350 && p95Ms <= 550 ? 600 : 400;
   const result = {
     measuredAt: new Date().toISOString(), network, requests: 20, failures,
-    model: 'Microsoft-Decision-1', deployment: config.fastDeployment,
+    model: 'Microsoft Decision', deployment: config.fastDeployment, questions: foundryQuestions(),
     p50Ms, p95Ms, tickMs, tickBudgetMs: tickMs - 50, samples,
   };
   await mkdir('fixtures', { recursive: true });

@@ -8,6 +8,15 @@ dependency that is not named below.
 
 These decisions override conflicting examples below:
 
+- Live fast input now asks three predicates in one request: damage risk,
+  left-lane clearance and right-lane clearance, relative to the observed ego
+  lane. Steering must meet the existing confidence threshold on its actual
+  target side, never borrow the other side's score, and still pass sensor route
+  checks and the shared gate. Show both scores with observation provenance.
+  Keep the original aggregate recordings unchanged and explicitly labelled;
+  never fabricate per-side scores for replay. Live parsing requires both
+  directional fields. Do not reuse the historical two-question calibration as
+  a measurement of Decision-1.1 or this new request shape.
 - Remove the cockpit Scenario and Hazard selectors and their preset bundles.
   Continuous contacts come from the seeded sequence, not a selected animal. Expose Run and
   the individual actor/gate controls with concise explanations instead. Live
@@ -66,6 +75,13 @@ These decisions override conflicting examples below:
   priority, physical turn duration, deadlines and unknown/error fallbacks stay
   unchanged. Advice must arrive and physically clear the path in time; never
   manufacture a successful small-animal avoidance or change the recordings.
+- At a full stop before an animal in continuous mode, keep the same contact
+  and episode active. Do not clear the animal, enter dwell/gap, cancel pending
+  slow advice or start more model requests while stopped. Continue clock ticks
+  and traffic physics; pending advice still obeys both gate rules and can
+  release braking into a physical turn. Otherwise stay stopped until presenter
+  intervention, Stop or a configured duration limit. Count a stop only once;
+  a later completed turn reclassifies that avoidance rather than counting twice.
 - Keep **Continuous rear threats (live)** and the staged presets; remove the
   separate Free drive button and Standard/Rear traffic selector in both views.
   The continuous Run option selects rear threats; retain the internal episode
@@ -73,11 +89,11 @@ These decisions override conflicting examples below:
   Start one physical follower at FOLLOWING_VEHICLE_DISTANCE_M (80 m for this
   rehearsal) before Start, including the initial quiet stretch. Preserve its
   actual lane, signed relative distance, speed and reaction state through
-  passage, dwell, quiet stretches and new hazard spawns. Never clear, replace or
+  passage, stopped holds, quiet stretches and new hazard spawns. Never clear, replace or
   re-center it on the ego lane at episode boundaries. It may pass or fall behind,
   even out of view; after braking to rest it remains stopped, not artificially
   following or accelerating to restore its original gap. Skip conflicting seeded
-  static traffic in its lane. Continue traffic movement during a stopped dwell.
+  static traffic in its lane. Continue traffic movement during a stopped hold.
   Traffic impacts in gaps also count once and pause; distinguish catching a
   vehicle ahead from an animal impact. After a collision, Start preserves the
   follower's lane/position; a directly impacted vehicle resumes from rest too.
@@ -119,7 +135,7 @@ These decisions override conflicting examples below:
   encounters may be unavoidable with gentle braking. Any animal struck in an
   occupied lane, including a squirrel, is a collision regardless of predicted
   major damage risk. Models learn of a contact only on its spawn tick; no model work
-  during quiet gaps/dwell. Preserve staged presets and recorded fixtures.
+  during quiet gaps/stopped holds. Preserve staged presets and recorded fixtures.
   Moving animals and additional dynamic traffic beyond the optional following
   vehicle remain deferred.
 - Use one fast model (Foundry `fast-decider`, Microsoft Decision-1) and one slow

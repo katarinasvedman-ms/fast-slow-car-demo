@@ -69,6 +69,31 @@ test('fast steering uses a tracked rear gap and closing speed instead of rejecti
   assert.equal(fastProposal(known, 0.35, observeScene(car, 'small_animal'), car, slowerTurn).action, 'slow_down');
 });
 
+test('fast steering requires confidence in the actual target side, never borrowing the opposite side score', () => {
+  const config = loadConfig({});
+  const car = createWorld(config, 40);
+  car.adjacentLanesBlocked = [];
+  const scene = observeScene(car, 'elk');
+  const left = { ...known, laneClear: { left: 0.95, right: 0.2 } };
+  assert.deepEqual(fastProposal(left, 0.35, scene, car, config), { action: 'swerve', targetLane: 1 });
+  assert.deepEqual(fastProposal({ ...left, laneClear: { left: 0.95, right: 0.95 } }, 0.35, scene, car, config),
+    { action: 'swerve', targetLane: 3 });
+  const blockedLeft = structuredClone(scene);
+  blockedLeft.lanes[0]!.vehicleBehindM = 5;
+  assert.equal(fastProposal(left, 0.35, blockedLeft, car, config).action, 'slow_down');
+  assert.equal(fastProposal({ ...left, laneClear: { left: null, right: 0.2 } }, 0.35, scene, car, config).action, 'slow_down');
+  assert.equal(fastProposal({ ...left, adjacentLaneClear: null, laneClear: { left: null, right: null } }, 0.35, scene, car, config).action, 'brake');
+  assert.equal(fastProposal({ ...left, laneClear: { left: null, right: 0.95 } }, 0.35, scene, car, config).targetLane, 3);
+  for (const ego of [1, 3] as const) {
+    car.carLane = ego;
+    car.hazard.lane = ego;
+    const absentHigh = { ...known, laneClear: ego === 1 ? { left: 0.99, right: 0.2 } : { left: 0.2, right: 0.99 } };
+    assert.equal(fastProposal(absentHigh, 0.35, observeScene(car, 'elk'), car, config).action, 'slow_down');
+    const adjacentHigh = { ...known, laneClear: ego === 1 ? { left: 0.2, right: 0.95 } : { left: 0.95, right: 0.2 } };
+    assert.equal(fastProposal(adjacentHigh, 0.35, observeScene(car, 'elk'), car, config).targetLane, 2);
+  }
+});
+
 test('continuous fast steering can return past distant stopped traffic to avoid the next small contact', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   const simulation = new Simulation(loadConfig({
@@ -127,7 +152,7 @@ test('fast-only slows from 50 to 40 and completes its own three-tick turn withou
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   let slowCalls = 0;
   const simulation = new Simulation(loadConfig({ BRAKE_DECEL_MPS2: '9', INITIAL_HAZARD_DISTANCE_M: '85' }), fakeModels({
-    fast: { name: 'Known low risk', async decide() { return known; } },
+    fast: { name: 'Known low risk', async decide() { return { ...known, laneClear: { left: 0.2, right: 0.95 } }; } },
     slow: { name: 'Must not run', async advise() { slowCalls++; return swerve; } },
   }), () => Date.now());
   context.after(() => simulation.dispose());
@@ -143,6 +168,8 @@ test('fast-only slows from 50 to 40 and completes its own three-tick turn withou
   assert.equal(slowCalls, 0);
   assert.equal(state.world.outcome, 'swerved');
   assert.equal(state.world.carLane, 3);
+  assert.deepEqual(state.fast.laneClear, { left: 0.2, right: 0.95 });
+  assert.ok(state.log.some((entry) => entry.laneClear?.right === 0.95 && entry.laneClear.left === 0.2));
   const applied = state.execution.find((event) => event.phase === 'applied' && event.action === 'swerve');
   const completed = state.execution.find((event) => event.phase === 'completed');
   assert.equal(applied?.source, 'fast');

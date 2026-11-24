@@ -55,7 +55,13 @@ export function fastProposal(
   const inPath = hazardInPath(scene.contact, car);
   if (inPath && result.majorDamageRisk !== null && result.adjacentLaneClear !== null &&
       result.adjacentLaneClear >= policy.fastLaneClearThreshold && car.speedKmh <= policy.fastSwerveSpeedLimit) {
-    const target = ([3, 2, 1] as const).find((lane) => fastLaneEligible(scene, car, lane, policy.tickMs));
+    const target = ([3, 2, 1] as const).find((lane) => {
+      const confidence = result.laneClear
+        ? lane < car.carLane ? result.laneClear.left : result.laneClear.right
+        : result.adjacentLaneClear;
+      return confidence !== null && confidence >= policy.fastLaneClearThreshold &&
+        fastLaneEligible(scene, car, lane, policy.tickMs);
+    });
     if (target !== undefined) return { action: 'swerve', targetLane: target };
   }
   return { action: fastAction(result, threshold, inPath) };

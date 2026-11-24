@@ -47,6 +47,7 @@ export class Simulation {
   private phaseUntilTick = 0;
   private driveTicks = 0;
   private slowEpisodeId: number | null = null;
+  private stoppedAtContact = false;
   private execution: ExecutionEvent[] = [];
   private turnOwner: ActionEnvelope | null = null;
 
@@ -156,6 +157,7 @@ export class Simulation {
     this.driveTicks = 0;
     this.phaseUntilTick = 0;
     this.slowEpisodeId = null;
+    this.stoppedAtContact = false;
     this.execution = [];
     this.turnOwner = null;
     this.publish();
@@ -285,12 +287,8 @@ export class Simulation {
       this.drive.elapsedS = this.driveTicks * this.config.tickMs / 1000;
       this.resolveEpisode();
       if (this.drive.durationS > 0 && this.drive.elapsedS >= this.drive.durationS) this.finishDrive('duration');
-      else if (this.drive.phase === 'episode') this.beginTick();
-      else if (this.drive.phase === 'dwell' && this.world.tick >= this.phaseUntilTick) {
-        this.world = { ...this.world, braking: false, slowing: false, outcome: 'running', hazardActive: false };
-        this.scenario('clear', 'Stopped animal contact cleared by scenario, not model output; following traffic persists; accelerating during the gap.');
-        this.waitForGap();
-      } else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick && this.recoverySeconds() === 0) {
+      else if (this.drive.phase === 'episode' && this.world.outcome === 'running' && !this.stoppedInPath()) this.beginTick();
+      else if (this.drive.phase === 'gap' && this.world.tick >= this.phaseUntilTick && this.recoverySeconds() === 0) {
         this.spawnEpisode();
         this.beginTick();
       }
@@ -362,6 +360,7 @@ export class Simulation {
       adjacentLanesBlocked: next.blocked.filter((lane) => lane !== previous.followingVehicle?.lane),
     };
     this.drive.episodeId = (this.drive.episodeId ?? 0) + 1;
+    this.stoppedAtContact = false;
     this.drive.phase = 'episode';
     this.drive.score.hazardsFaced += 1;
     this.fast = { ...this.emptyFast(), missedDeadlines: this.fast.missedDeadlines, deadlineTicks: this.fast.deadlineTicks };
@@ -372,22 +371,33 @@ export class Simulation {
   }
 
   private resolveEpisode(): void {
-    if (this.world.outcome === 'running' ||
+    const stopped = this.stoppedInPath();
+    if ((this.world.outcome === 'running' && !stopped) ||
         (this.drive.phase !== 'episode' &&
           !(this.world.outcome === 'collision' && (this.drive.phase === 'gap' || this.drive.phase === 'dwell')))) return;
+    if (stopped) {
+      if (!this.stoppedAtContact) {
+        this.stoppedAtContact = true;
+        this.drive.score.avoidedByBraking += 1;
+        this.cancelFastRequests();
+        if (this.fast.status === 'pending') this.fast.status = 'idle';
+        this.scenario('stopped', 'Stopped before contact. Animal and encounter retained; pending slow advice can still be checked. No automatic clearance or new requests while stopped.');
+      }
+      return;
+    }
     this.cancelRequests();
     this.cancelPendingAdvice(this.world.outcome === 'collision' ? 'collision' : 'episode_ended');
     if (this.fast.status === 'pending') this.fast.status = 'idle';
     const outcome = this.world.outcome;
+    if (this.stoppedAtContact) {
+      this.drive.score.avoidedByBraking -= 1;
+      this.stoppedAtContact = false;
+    }
     if (outcome === 'collision') {
       this.drive.score.collisions += 1;
       this.drive.phase = 'collision';
       this.scenario('collision', 'Collision counted. Run paused; Start resumes from rest.');
       this.stop();
-    } else if (outcome === 'braked') {
-      this.drive.score.avoidedByBraking += 1;
-      this.waitFor('dwell', this.config.driveDwellS);
-      this.scenario('stopped', 'Stopped before contact. Waiting for scenario clearance; episode work cancelled.');
     } else {
       if (outcome === 'swerved') this.drive.score.avoidedBySwerving += 1;
       this.scenario('passed', `Contact passed (${outcome}); episode work cancelled; following traffic persists.`);
@@ -408,6 +418,11 @@ export class Simulation {
 
   private inPath(): boolean {
     return hazardInPath(senseContact(this.world), this.world);
+  }
+
+  private stoppedInPath(): boolean {
+    return (this.world.outcome === 'running' || this.world.outcome === 'braked') &&
+      this.world.speedKmh === 0 && this.world.laneChange === null && this.inPath();
   }
 
   private defaultFastAction(): ActionEnvelope['action'] {
@@ -455,8 +470,11 @@ export class Simulation {
             ...this.fast, majorDamageRisk: result.majorDamageRisk, adjacentLaneClear: result.adjacentLaneClear,
             latencyMs: result.latencyMs, status: 'ready', observedAtTick: flight.tick, error: null,
           };
+          if (result.laneClear) this.fast.laneClear = { ...result.laneClear };
+          else delete this.fast.laneClear;
           entry.majorDamageRisk = result.majorDamageRisk;
           entry.adjacentLaneClear = result.adjacentLaneClear;
+          if (result.laneClear) entry.laneClear = { ...result.laneClear };
           if (flight.suppressed) entry.detail += '; action suppressed while blocking';
           else {
             const proposal = fastProposal(result, this.threshold, scene, car, this.config);
@@ -722,13 +740,17 @@ export class Simulation {
     if (this.world.outcome !== 'running' && this.advice.status !== 'thinking' && !this.queuedSlow) this.stop();
   }
 
-  private cancelRequests(): void {
-    this.generation += 1;
+  private cancelFastRequests(): void {
     for (const flight of this.fastFlights) {
       clearTimeout(flight.deadline);
       flight.controller.abort();
     }
     this.fastFlights.clear();
+  }
+
+  private cancelRequests(): void {
+    this.generation += 1;
+    this.cancelFastRequests();
     if (this.slowFlight) {
       clearTimeout(this.slowFlight.timeout);
       this.slowFlight.controller.abort();

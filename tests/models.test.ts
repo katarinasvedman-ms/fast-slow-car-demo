@@ -11,7 +11,7 @@ import { flush } from './helpers.js';
 
 test('answer variants are narrowed; unknown is not false and the threshold boundary brakes', () => {
   const answers = { major_damage_risk: { type: 'noul', noul: 0.35 }, adjacent_lane_clear: { type: 'noul', noul: 0.9 } };
-  const result = { ...parseFastAnswers(answers), latencyMs: 1 };
+  const result = { ...parseFastAnswers(answers, 'recorded'), latencyMs: 1 };
   assert.equal(fastAction(result, 0.35, true), 'brake');
   assert.equal(fastAction({ ...result, majorDamageRisk: 0.349 }, 0.35, true), 'slow_down');
   for (const adjacentLaneClear of [0, 0.9]) {
@@ -19,17 +19,44 @@ test('answer variants are narrowed; unknown is not false and the threshold bound
     assert.equal(fastAction(lowRisk, 0.35, true), 'slow_down');
     assert.equal(fastAction(lowRisk, 0.35, false), 'continue');
   }
-  const refused = parseFastAnswers({ ...answers, major_damage_risk: { type: 'refusal' } });
+  const refused = parseFastAnswers({ ...answers, major_damage_risk: { type: 'refusal' } }, 'recorded');
   assert.equal(refused.majorDamageRisk, null);
   assert.equal(fastAction({ ...refused, latencyMs: 1 }, 0.35, true), 'brake');
   assert.equal(fastAction({ ...result, majorDamageRisk: 0.1, adjacentLaneClear: null }, 0.35, true), 'brake');
   for (const value of [-0.1, 1.1, NaN, undefined]) {
-    assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'noul', noul: value } }));
+    assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'noul', noul: value } }, 'recorded'));
   }
-  assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'choice', probability: 0.1 } }));
+  assert.throws(() => parseFastAnswers({ ...answers, major_damage_risk: { type: 'choice', probability: 0.1 } }, 'recorded'));
   assert.throws(() => parseSlowAdvice({ action: 'swerve', rationale: 'Missing lane.' }));
   assert.throws(() => parseSlowAdvice({ action: 'continue', rationale: '' }));
   assert.throws(() => parseSlowAdvice({ action: 'slow_down', rationale: 'Fast-only action.' }));
+});
+
+test('directional answers preserve side ownership, unknowns and strict live schema without inventing recorded side scores', () => {
+  const answers = {
+    major_damage_risk: { type: 'noul', noul: 0.1 },
+    left_lane_clear: { type: 'noul', noul: 0.96 },
+    right_lane_clear: { type: 'noul', noul: 0.2 },
+  };
+  assert.deepEqual(parseFastAnswers(answers), {
+    majorDamageRisk: 0.1, adjacentLaneClear: 0.96, laneClear: { left: 0.96, right: 0.2 },
+  });
+  assert.deepEqual(parseFastAnswers({ ...answers, left_lane_clear: { type: 'refusal' } }), {
+    majorDamageRisk: 0.1, adjacentLaneClear: 0.2, laneClear: { left: null, right: 0.2 },
+  });
+  assert.deepEqual(parseFastAnswers({
+    ...answers, left_lane_clear: { type: 'refusal' }, right_lane_clear: { type: 'noul', noul: null },
+  }), { majorDamageRisk: 0.1, adjacentLaneClear: null, laneClear: { left: null, right: null } });
+  const legacy = { major_damage_risk: answers.major_damage_risk, adjacent_lane_clear: answers.left_lane_clear };
+  assert.throws(() => parseFastAnswers(legacy), /left_lane_clear/);
+  assert.deepEqual(parseFastAnswers(legacy, 'recorded'), { majorDamageRisk: 0.1, adjacentLaneClear: 0.96 });
+  assert.deepEqual(parseFastAnswers(answers, 'recorded'), parseFastAnswers(answers));
+  for (const field of ['left_lane_clear', 'right_lane_clear']) {
+    for (const bad of [undefined, { type: 'noul', noul: 1.1 }, { type: 'choice', noul: 0.95 }]) {
+      assert.throws(() => parseFastAnswers({ ...answers, [field]: bad }));
+      assert.throws(() => parseFastAnswers({ ...legacy, ...answers, [field]: bad }, 'recorded'));
+    }
+  }
 });
 
 test('recorded replay requires no network and preserves actual answers and timing', async (context) => {
@@ -194,13 +221,25 @@ test('live decision pacing spaces mocked requests and cancels a queued request w
     else process.env.FOUNDRY_API_KEY = previous;
   });
   const started: number[] = [];
-  context.mock.method(globalThis, 'fetch', async () => {
+  const deployments: string[] = [];
+  const questionNames: string[][] = [];
+  context.mock.method(globalThis, 'fetch', async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
     started.push(performance.now());
+    const body = JSON.parse(String(init?.body));
+    deployments.push(body.model);
+    questionNames.push(Object.keys(body.questions));
     return Response.json({
-      answers: { major_damage_risk: { type: 'noul', noul: 0.9 }, adjacent_lane_clear: { type: 'noul', noul: 0.9 } },
+      answers: {
+        major_damage_risk: { type: 'noul', noul: 0.9 },
+        left_lane_clear: { type: 'noul', noul: 0.2 },
+        right_lane_clear: { type: 'noul', noul: 0.95 },
+      },
     });
   });
-  const models = createLiveModels(loadConfig({ FOUNDRY_ENDPOINT: 'https://example.invalid' }));
+  const models = createLiveModels(loadConfig({ FOUNDRY_ENDPOINT: 'https://example.invalid', FOUNDRY_DEPLOYMENT: 'fast-decider1' }));
+  const simulation = new Simulation(loadConfig({}), models);
+  context.after(() => simulation.dispose());
+  assert.equal(simulation.snapshot().modelName, 'Microsoft Decision / fast-decider1');
   const cancelled = new AbortController();
   const calls = [
     models.fast.decide('Synthetic observation.', new AbortController().signal),
@@ -212,6 +251,11 @@ test('live decision pacing spaces mocked requests and cancels a queued request w
   cancelled.abort();
   const results = await Promise.allSettled(calls);
   assert.equal(started.length, 3);
+  assert.deepEqual(deployments, ['fast-decider1', 'fast-decider1', 'fast-decider1']);
+  assert.ok(questionNames.every((names) => names.join(',') === 'major_damage_risk,left_lane_clear,right_lane_clear'));
+  const first = results[0];
+  assert.ok(first?.status === 'fulfilled');
+  assert.deepEqual(first.value.laneClear, { left: 0.2, right: 0.95 });
   assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
   assert.ok((started[2] ?? 0) - (started[0] ?? 0) >= 80);
 });

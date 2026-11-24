@@ -4,6 +4,7 @@ import { createLiveModels } from '../src/models/live.js';
 import { buildObservation } from '../src/observation.js';
 import { createWorld } from '../src/world.js';
 import type { HazardVariant } from '../src/types.js';
+import { foundryQuestions } from '../src/models/questions.js';
 
 async function main(): Promise<void> {
   if (!process.argv.includes('--allow-paid-requests')) throw new Error('Pass --allow-paid-requests to capture up to 16 decisions and one reasoning response.');
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
   await writeFile('fixtures/recorded.json', JSON.stringify({
     recordedAt: new Date().toISOString(),
     source: 'Live Foundry responses to synthetic observations; no credentials or endpoint stored.',
-    fastModel: 'Microsoft-Decision-1', slowModel: config.slowModel,
+    fastModel: models.fast.name, fastDeployment: config.fastDeployment, questions: foundryQuestions(), slowModel: config.slowModel,
     entries, slow,
   }, null, 2) + '\n');
 }

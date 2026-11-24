@@ -152,6 +152,10 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   gentle.world.slowing = true;
   gentle.gate = [{ ...record(), envelope: { ...record().envelope, action: 'slow_down', source: 'fast' }, decision: { allowed: true } }];
   assert.deepEqual(parseSnapshot(JSON.stringify(gentle)), gentle);
+  gentle.fast.laneClear = { left: null, right: 0.95 };
+  gentle.log = [{ tick: 0, detail: 'Directional result', majorDamageRisk: 0.1, adjacentLaneClear: 0.95,
+    laneClear: { left: null, right: 0.95 }, deadlineMissed: false }];
+  assert.deepEqual(parseSnapshot(JSON.stringify(gentle)), gentle);
   assert.throws(() => parseSnapshot('{"world":{}}'), /Invalid cockpit state/);
   value.advice.gate = { allowed: false, reasons: [{ reason: 'stale_advice', detail: 'Stale.' }] };
   const malformed = JSON.parse(JSON.stringify(value));
@@ -160,6 +164,11 @@ test('cockpit rejects malformed snapshots instead of rendering success-shaped de
   for (const mutate of [
     (state: Snapshot) => { state.drive.episodeId = -1; },
     (state: Snapshot) => { state.drive.score.collisions = NaN; },
+    (state: Snapshot) => { state.fast.laneClear = { left: 1.1, right: 0.95 }; },
+    (state: Snapshot) => {
+      state.log = [{ tick: 0, detail: 'Invalid side score', majorDamageRisk: 0.1, adjacentLaneClear: 0.95,
+        laneClear: { left: 0.95, right: -0.1 }, deadlineMissed: false }];
+    },
     (state: Snapshot) => { state.scene.contact = { lane: 2, rangeM: NaN }; },
     (state: Snapshot) => {
       state.execution = [{ tick: 1, episodeId: null, source: 'fast', phase: 'invented' as 'applied', detail: 'Invalid execution phase.' }];

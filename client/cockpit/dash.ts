@@ -1,5 +1,5 @@
 import type { CockpitEvent, CockpitView } from './model.js';
-import { canStart, renderDrive, renderExecution } from '../drive.js';
+import { canStart, renderDrive, renderExecution, renderLaneClearance } from '../drive.js';
 import { freshnessPositions } from './model.js';
 
 export function element(id: string): HTMLElement {
@@ -48,6 +48,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
   const { world, fast, advice, settings } = snapshot;
   renderDrive(snapshot, busy);
   renderExecution(snapshot);
+  renderLaneClearance(snapshot);
   const modeHelp = {
     fast_only: 'Fast actions only. No slow requests.',
     blocking: 'Wait for slow advice; fast actions pause, physical motion does not.',
@@ -73,6 +74,7 @@ export function renderDash(view: CockpitView, events: CockpitEvent[], busy: bool
     : snapshot.drive.phase === 'dwell' ? `CONTACT CLEARS IN ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
     : snapshot.drive.phase === 'gap' ? `QUIET ROAD / ${snapshot.drive.phaseRemainingS.toFixed(1)} s`
     : !snapshot.started && world.tick === 0 ? 'READY TO START'
+    : snapshot.drive.kind === 'free' && world.outcome === 'braked' ? 'STOPPED / ANIMAL RETAINED'
     : world.outcome !== 'running' ? world.outcome.toUpperCase()
       : world.laneChange ? `CHANGING TO LANE ${world.laneChange.toLane}`
       : world.speedKmh === 0 && snapshot.scene.followingVehicle ? 'STOPPED / WATCH REAR'

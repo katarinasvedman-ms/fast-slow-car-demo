@@ -1,5 +1,5 @@
 import type { Snapshot } from '../src/types.js';
-import { canStart, renderDrive, renderExecution } from './drive.js';
+import { canStart, renderDrive, renderExecution, renderLaneClearance } from './drive.js';
 
 function element(id: string): HTMLElement {
   const found = document.getElementById(id);
@@ -33,6 +33,7 @@ function render(snapshot: Snapshot): void {
   const world = snapshot.world;
   renderDrive(snapshot, choosingRun);
   renderExecution(snapshot);
+  renderLaneClearance(snapshot);
   if (document.activeElement !== speed) speed.value = String(world.selectedSpeedKmh);
   if (document.activeElement !== temperature) temperature.value = String(world.ambientTempC);
   hazard.value = snapshot.hazardVariant ?? '';
@@ -191,7 +192,9 @@ function render(snapshot: Snapshot): void {
     const probability = (value: number | null) => value === null ? '?' : value.toFixed(2);
     row.className = entry.supersession ? 'supersession' : entry.scenario ? 'scenario' : '';
     row.textContent = entry.supersession ? `#${entry.tick} ${entry.detail}`
-      : `#${entry.tick} risk=${probability(entry.majorDamageRisk)} clear=${probability(entry.adjacentLaneClear)} / ${entry.detail}`;
+      : `#${entry.tick} risk=${probability(entry.majorDamageRisk)} clear=${probability(entry.adjacentLaneClear)}` +
+        (entry.laneClear ? ` left=${probability(entry.laneClear.left)} right=${probability(entry.laneClear.right)}` : '') +
+        ` / ${entry.detail}`;
     return row;
   }));
   element('action-status').textContent = snapshot.actionStatus;

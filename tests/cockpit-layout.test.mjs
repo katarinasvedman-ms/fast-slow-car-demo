@@ -101,6 +101,7 @@ test('cockpit renders full advice, independent refusal details and both tuning i
   assert.equal(nodes.has('hazard'), false);
   assert.match(nodes.get('run-help').textContent, /Offline recordings/);
   assert.match(nodes.get('mode-help').textContent, /Fast keeps acting/);
+  assert.equal(nodes.get('lane-clear-details').textContent, 'Recorded aggregate only; no per-side scores.');
   assert.equal(nodes.get('advice-action').textContent, 'SWERVE / LANE 3');
   assert.equal(nodes.get('advice-rationale').textContent, state.advice.data.rationale);
   assert.equal(nodes.get('advice-stamp-visible').textContent, 'Observed #0 / arrived #5 / 3841 ms model latency');
@@ -182,8 +183,23 @@ test('cockpit renders full advice, independent refusal details and both tuning i
     { tick: 1, episodeId: 1, source: 'fast', phase: 'applied', action: 'slow_down', detail: 'GATE ALLOWED / fast slow down applied.' },
     { tick: 5, episodeId: 1, source: 'slow', phase: 'not_applied', action: 'swerve', toLane: 3, detail: 'GATE ALLOWED / slow swerve allowed, not applied: fast brake wins the same-tick conflict.' },
   ];
+  state.fast.laneClear = { left: null, right: 0.95 };
+  state.fast.observedAtTick = 8;
   renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('clear-label').textContent, 'Best side clearance');
+  assert.equal(nodes.get('lane-clear-details').textContent, 'LEFT ? / RIGHT 0.95 / at observation #8');
   assert.match(nodes.get('actor-limits').textContent, /Fast steering: <=40 km\/h \/ Slow: no actor cap \/ Gate:/);
   assert.equal(nodes.get('execution-history').children[0].dataset.phase, 'applied');
   assert.match(nodes.get('execution-history').children[1].textContent, /allowed, not applied/);
+  state.drive.phase = 'episode';
+  state.world.outcome = 'braked';
+  state.world.speedKmh = 0;
+  state.advice = {
+    status: 'thinking', observedAtTick: 1, data: null, error: null, gate: null, application: null, cancellation: null,
+  };
+  renderDash(mapSnapshot(state), [], false);
+  assert.equal(nodes.get('motion-status').textContent, 'STOPPED / ANIMAL RETAINED');
+  assert.match(nodes.get('drive-status').textContent, /STOPPED: animal retained/);
+  assert.match(nodes.get('drive-availability').textContent, /no automatic clearance/);
+  assert.equal(thinking, true);
 });

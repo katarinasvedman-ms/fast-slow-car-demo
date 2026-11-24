@@ -150,6 +150,7 @@
       <div id="damage-bar" class="bar" role="progressbar" aria-labelledby="damage-label" aria-valuemin="0" aria-valuemax="1"><div id="damage-fill" class="fill"></div><div id="threshold-marker" title="Braking threshold"></div></div>
       <div class="stats"><label id="clear-label">Adjacent lane clear</label><strong id="clear-value" class="number">unknown</strong></div>
       <div id="clear-bar" class="bar" role="progressbar" aria-labelledby="clear-label" aria-valuemin="0" aria-valuemax="1"><div id="clear-fill" class="fill"></div></div>
+      <p id="lane-clear-details" class="muted"></p>
       <label>Damage threshold: <strong id="threshold-value">0.35</strong><input id="threshold" type="range" min="0" max="1" step="0.01" value="0.35" aria-label="Damage threshold"></label>
       <p class="muted">A missed major hazard costs more than unnecessary braking: the threshold is deliberately below 0.5. Fast may steer at or below 40 km/h with a valid answer and an explicitly observed-clear adjacent route. Otherwise known low-risk contacts get gentle slowing; high risk or unknown means brake in-path. Both actors obey the gate's current temperature and freshness limits. Once clear and no longer turning, recover selected speed.</p>
       <p class="muted">Braking is revisable: a later gate-allowed action can release it. New same-tick fast actions win conflicts; refused advice changes nothing.</p>

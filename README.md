@@ -1,6 +1,6 @@
 # Fast / Slow
 
-A local, fixed-clock toy world: Microsoft Decision-1 makes fast probability
+A local, fixed-clock toy world: Microsoft Decision makes fast probability
 decisions, GPT-5.4 returns asynchronous advice, and a deterministic gate decides
 what may happen. **The world does not wait. Advice expires. Agreement is not
 authority.** Both models run in Foundry; no direct OpenAI account is required.
@@ -367,7 +367,7 @@ braking while advice is pending. **Async + gated** keeps fast actions active.
 **Fast only** never calls the slow model. Both gate checks are logged; the
 advice card retains the slow action's decision even as the fast gate log scrolls.
 Fast now also has a bounded steering policy: at **<=40 km/h**, a known timely
-answer with lane-clear probability **>=0.9** may propose a specific sensor-clear
+answer with target-side lane-clear probability **>=0.9** may propose a specific sensor-clear
 adjacent lane. It requires clear forward range covering the three-tick turn
 plus 5 m. A tracked vehicle behind may share that lane only if its measured gap,
 minus positive closing speed over the turn plus a two-second buffer, still leaves
@@ -377,6 +377,30 @@ ties, and an ongoing turn is never redirected. The route is checked again before
 applying a fast turn. `FAST_SWERVE_SPEED_LIMIT_KMH` may lower, but not raise, the
 40 km/h cap. `FAST_LANE_CLEAR_THRESHOLD` configures conservative screening;
 neither this probability nor the simple route check proves a safe trajectory.
+
+The live request contains **three `noul` questions in one HTTP call**: major
+damage risk, **left-lane clearance**, and **right-lane clearance**. Left/right
+are relative to the ego lane at observation, not the current lane after a turn.
+Each question considers only its own adjacent target (ego lane minus/plus one),
+requires 100 m of observed forward traffic clearance, and accounts for reported
+rear gaps/closing speeds in that target. A nonexistent lane is not an escape.
+Traffic in the ego lane or opposite candidate does not make the target occupied.
+
+The controller requires the score for the **actual target side** to meet 0.9
+and independently checks that route's sensors; a high left score can never
+authorize a low/unknown-confidence right turn. An unknown side is ineligible;
+one known eligible side can still be used. Both unknown means the in-path brake
+fallback. Both views show the left/right scores and observation tick. The larger
+numeric readout, **Best side clearance**, is simply the maximum known score for
+display, not a measured union probability or a substitute for target validation.
+These probabilities do not prove maneuver safety or better calibration.
+
+Checked-in recordings retain their original two-question aggregate response and
+timing. Replay displays **Recorded aggregate only**, without inventing directional
+scores, and preserves its existing sensor-checked steering behavior. Only live
+responses require both directional answer fields; a missing field is an explicit
+service error, not a silent fallback to the old schema. The live model label
+shows the configured deployment name rather than a hardcoded model version.
 
 The shared gate remains authoritative over **both actors**. Its speed rule uses
 the lower of the actor cap and current temperature limit for fast swerves;
@@ -512,15 +536,21 @@ The road and model inputs share the same observation code; the cumulative
 odometer and persistent vehicle position prevent jumps at a spawn.
 
 After a completed passage, a moving, contact-free gap precedes the next episode.
-After stopping before a contact, a dwell of `DRIVE_DWELL_S` precedes an explicitly
-logged **animal scenario clearance**, not a model decision or traffic removal.
-Traffic in another lane continues moving during a stopped dwell. The gap allows physical
-acceleration back toward selected speed. Defaults are **3 s dwell / 2.55–3.45 s
-random gaps** (85–115% of `DRIVE_GAP_S`), including before the first contact and
-after collision recovery. Continuous rear threats extend the gap until recovery.
-Dwell/gap transitions occur on clock ticks
-(rounded up; even zero waits until the next tick). There are no model calls during
-dwell, gap or pauses.
+After stopping before a contact, **the animal stays visible and the same encounter
+remains active**. Pending slow advice is not cancelled: it can still arrive and
+be checked against its actual age and the current speed/temperature limits.
+An allowed, applied turn can release the brake. Otherwise the car stays stopped
+until presenter intervention; there is no automatic animal clearance or next
+encounter. No new model requests start while stopped, but ticks, advice age,
+the running-time limit and traffic physics continue. A stop counts once; a later
+completed turn reclassifies that avoidance as swerving rather than counting twice.
+
+The gap after a completed passage allows physical acceleration back toward
+selected speed. Defaults are **2.55–3.45 s random gaps** (85–115% of
+`DRIVE_GAP_S`), including before the first contact and after collision recovery.
+Continuous rear threats extend the gap until recovery. Gap transitions occur on
+clock ticks (rounded up; even zero waits until the next tick). There are no new
+model calls during a stopped hold, gap or collision pause.
 
 Only one stationary hazard exists at a time; animal motion and dynamic traffic
 beyond this persistent vehicle remain out of scope. Staged presets, recordings
@@ -531,7 +561,7 @@ A collision, including a traffic impact during a quiet stretch, counts once and
 **pauses**. **Start** explicitly clears the animal contact and resumes from rest
 into a gap without resetting the score or moving the following car; a directly
 impacted following car resumes from rest too. Catching it ahead is labelled
-**VEHICLE AHEAD IMPACT**, not an animal collision. Running-time duration includes dwell and gaps but excludes collision
+**VEHICLE AHEAD IMPACT**, not an animal collision. Running-time duration includes stopped holds and gaps but excludes collision
 pauses. A nonzero duration expires on the first clock boundary at or beyond its limit;
 shortening it below elapsed time ends immediately. **Stop** ends even during a
 collision pause. Both show the final scoreboard; **Reset** starts over, preserving
@@ -594,7 +624,9 @@ encounter replaces the assessment, and Reset clears it.
 hazard ticks send **150 Decision-1 requests per minute** (151 if counting both
 endpoints of a 60-second interval). Episode-start requests occupy those ticks;
 Continuous driving makes no tick-zero request because it starts with a quiet gap. Each
-request contains **both** predicates, not two billable calls.
+request contains **all three** predicates (risk, left and right clearance),
+not three separate calls. The extra predicate can affect token usage and latency;
+unchanged request count does not imply unchanged cost or timing.
 Reasoning modes add **one GPT-5.4 request per episode started**; Fast only adds
 none. For a full running minute, count the actual active request ticks, at most
 about 150 fast calls (boundary/start effects aside), and the episodes begun in it.
@@ -614,7 +646,7 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 | Variable | Default | Meaning |
 |---|---|---|
 | `FOUNDRY_ENDPOINT` | required live | HTTPS resource endpoint, e.g. `https://YOUR-RESOURCE.services.ai.azure.com` |
-| `FOUNDRY_DEPLOYMENT` | `fast-decider` | Existing Microsoft Decision-1 deployment |
+| `FOUNDRY_DEPLOYMENT` | `fast-decider` | Existing Microsoft Decision deployment name; use the actual name of your Decision-1.1 deployment when switching |
 | `SLOW_MODEL` | `slow-reasoner` | Existing GPT-5.4 deployment for Responses |
 | `STUB` | `0` | `1` disables all app network/model authentication calls |
 | `TICK_MS` / `TICK_BUDGET_MS` | `400` / `350` | Fixed clock (minimum 50 ms) and fast deadline; budget must be smaller |
@@ -627,7 +659,7 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 | `DRIVE_SEED` | `42` | Unsigned 32-bit seeded quiet-gap, hazard/adjacent-traffic and spawn-distance sequence |
 | `DRIVE_DURATION_S` | `0` | Initial live-editable running-time duration, integer 0..3600 seconds; 0 means until Stop |
 | `DRIVE_GAP_S` | `3` | Base quiet interval, 0..300 seconds; each initial/subsequent gap samples 85–115%, rounded up to ticks |
-| `DRIVE_DWELL_S` | `3` | Stopped-contact dwell before scenario clearance, 0..300 seconds |
+| `DRIVE_DWELL_S` | `3` | Legacy setting, still validated (0..300); stopped contacts no longer clear automatically |
 | `INITIAL_HAZARD_DISTANCE_M` | `500` | Contact distance for staged scenes and continuous Rear threats; restart after edits |
 | `FOLLOWING_VEHICLE_DISTANCE_M` | `80` | Initial follower gap in staged/continuous Rear threats, 0.01..1000 m; not restored between episodes; restart after edits |
 | `STALENESS_LIMIT_TICKS` | `3` | Initial live-editable UI limit; refuse observation age strictly greater than this |
@@ -642,17 +674,20 @@ Those screenshots are not Foundry responses or additional recorded fixtures.
 
 ## Local latency calibration and recordings
 
-The local measurement is authoritative, not a comparison with another model.
+The checked-in local measurement is historical Decision-1 calibration, not a
+measurement of Decision-1.1 or the current three-question request.
 Twenty actual two-predicate requests, no retries, nearest-rank percentiles:
 
 | Model | Successful / attempted | p50 ms | p95 ms | Selected tick / budget |
 |---|---:|---:|---:|---|
 | Microsoft Decision-1 | 20/20 | 141.8 | 200.2 | 400 / 350 ms |
 
-Raw samples are in `fixtures\latency.json`, measured on the current local
-connection. The cold first request took 433.2 ms and is preserved in offline
+Raw samples are in `fixtures\latency.json`, measured on the connection used for
+that capture. The cold first request took 433.2 ms and is preserved in offline
 replay to exercise deadline handling. The presentation network is unverified:
-remeasure there when possible, or on the worst accessible connection.
+remeasure there when possible, or on the worst accessible connection. Switching
+model version or question shape requires fresh approved measurements before
+claiming these latency numbers still apply; the runtime remains at 400/350 ms.
 
 After building, these direct Node commands work in PowerShell:
 
@@ -697,7 +732,7 @@ Tests cover policy boundaries/refusals, independent gate rules, physical outcome
 observation privacy, deadline/late-result handling, modes, reset and terminal
 lifecycle, same-tick fast priority, brake supersession, three-tick lane occupancy,
 actual offline replay, sensor-lane path checks, acceleration, seeded free-drive
-episodes, cancelled/late episode advice, dwell/clearance, collision pause/resume,
+episodes, cancelled/late episode advice, stopped-contact retention and revision, collision pause/resume,
 running-time duration and scoreboard counts.
 
 ## Provenance and limitations

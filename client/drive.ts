@@ -28,6 +28,16 @@ export function renderExecution(snapshot: Snapshot): void {
   element('execution-history').replaceChildren(...rows);
 }
 
+export function renderLaneClearance(snapshot: Snapshot): void {
+  const { laneClear, observedAtTick } = snapshot.fast;
+  const probability = (value: number | null) => value === null ? '?' : value.toFixed(2);
+  element('clear-label').textContent = laneClear ? 'Best side clearance' : 'Adjacent lane clear';
+  element('lane-clear-details').textContent = laneClear
+    ? `LEFT ${probability(laneClear.left)} / RIGHT ${probability(laneClear.right)} / at observation #${observedAtTick}`
+    : snapshot.backend === 'stub' ? 'Recorded aggregate only; no per-side scores.'
+      : 'Awaiting left/right clearance scores.';
+}
+
 export function renderDrive(snapshot: Snapshot, busy = false): void {
   const { drive, world } = snapshot;
   const run = element('run');
@@ -45,14 +55,15 @@ export function renderDrive(snapshot: Snapshot, busy = false): void {
   element('drive-availability').textContent = snapshot.backend === 'stub'
     ? 'Continuous rear threats require live mode. STUB supports the four staged moments only; its single slow recording does not fit other scenes.'
     : `Continuous rear threats: hazards appear ${snapshot.settings.initialHazardDistanceM} m ahead. The same following car remains between encounters; it can pass or fall behind, not teleport back. Recover to selected speed before the next hazard. ` +
-      'Duration 0 runs until Stop. Paid live models run only during contacts (one slow request per episode). Any impact pauses the run; Start resumes from rest.';
+      'A full stop keeps the animal and pending advice; there is no automatic clearance. Duration 0 runs until Stop. Paid live models run only during moving contacts (one slow request per episode). Any impact pauses the run; Start resumes from rest.';
   element('stop').hidden = drive.kind !== 'free';
   element('stop').toggleAttribute('disabled', busy || drive.phase === 'idle' || drive.phase === 'finished');
   const modes = { fast_only: 'Fast only', blocking: 'Blocking', async_gated: 'Async + gated' };
   element('drive-status').textContent = drive.kind === 'staged' ? `STAGED / ${modes[snapshot.mode]}`
     : `CONTINUOUS / episode ${drive.episodeId ?? '-'} / ` +
       (drive.durationS === 0 ? `${drive.elapsedS.toFixed(1)} s / until Stop` : `${Math.max(0, drive.durationS - drive.elapsedS).toFixed(1)} s left`) +
-      (drive.phase === 'collision' ? ' / COLLISION PAUSED: Start to resume' : '');
+      (drive.phase === 'collision' ? ' / COLLISION PAUSED: Start to resume'
+        : drive.phase === 'episode' && world.outcome === 'braked' ? ' / STOPPED: animal retained' : '');
   const scoreboard = element('drive-scoreboard');
   scoreboard.hidden = drive.phase !== 'finished';
   element('drive-summary').textContent = `${drive.finishReason === 'duration' ? 'Duration reached' : 'Stopped by presenter'} / ${drive.elapsedS.toFixed(1)} s running time / seed ${drive.seed}`;

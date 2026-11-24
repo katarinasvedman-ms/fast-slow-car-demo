@@ -11,13 +11,13 @@ export interface ModelServices {
   slow: { name: string; advise: (observation: string, signal: AbortSignal) => Promise<SlowResult> };
 }
 
-export function parseFastAnswers(answers: unknown): Omit<FastResult, 'latencyMs'> {
+export function parseFastAnswers(answers: unknown, format: 'directional' | 'recorded' = 'directional'): Omit<FastResult, 'latencyMs'> {
   if (
     !answers || typeof answers !== 'object' ||
-    !('major_damage_risk' in answers) || !('adjacent_lane_clear' in answers)
+    !('major_damage_risk' in answers)
   ) throw new Error('Decision-1 returned no complete answers object.');
-  const probability = (name: 'major_damage_risk' | 'adjacent_lane_clear'): number | null => {
-    const answer: unknown = name === 'major_damage_risk' ? answers.major_damage_risk : answers.adjacent_lane_clear;
+  const probability = (name: string): number | null => {
+    const answer: unknown = (answers as Record<string, unknown>)[name];
     if (!answer || typeof answer !== 'object' || !('type' in answer)) {
       throw new Error(`Decision-1 returned no typed ${name} answer.`);
     }
@@ -31,7 +31,13 @@ export function parseFastAnswers(answers: unknown): Omit<FastResult, 'latencyMs'
     }
     return answer.noul;
   };
-  return { majorDamageRisk: probability('major_damage_risk'), adjacentLaneClear: probability('adjacent_lane_clear') };
+  const majorDamageRisk = probability('major_damage_risk');
+  if (format === 'recorded' && !('left_lane_clear' in answers) && !('right_lane_clear' in answers)) {
+    return { majorDamageRisk, adjacentLaneClear: probability('adjacent_lane_clear') };
+  }
+  const laneClear = { left: probability('left_lane_clear'), right: probability('right_lane_clear') };
+  const known = [laneClear.left, laneClear.right].filter((value): value is number => value !== null);
+  return { majorDamageRisk, adjacentLaneClear: known.length ? Math.max(...known) : null, laneClear };
 }
 
 export function parseSlowAdvice(value: unknown): Omit<SlowResult, 'latencyMs'> {
@@ -60,7 +66,7 @@ export function createLiveModels(config: Config) {
   return {
     ready: async (): Promise<void> => { await credential.token(); },
     fast: {
-      name: 'Microsoft Decision-1',
+      name: `Microsoft Decision / ${config.fastDeployment}`,
       async decide(observation: string, signal: AbortSignal): Promise<FastResult & { answers: unknown }> {
         const headers = await credential.headers();
         signal.throwIfAborted();

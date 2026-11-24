@@ -35,6 +35,7 @@ export interface DriveView {
 export interface FastResult {
   majorDamageRisk: number | null;
   adjacentLaneClear: number | null;
+  laneClear?: { left: number | null; right: number | null };
   latencyMs: number;
 }
 
@@ -153,6 +154,7 @@ export interface TickEntry {
   detail: string;
   majorDamageRisk: number | null;
   adjacentLaneClear: number | null;
+  laneClear?: FastResult['laneClear'];
   deadlineMissed: boolean;
   scenario?: { episodeId: number | null; event: 'spawn' | 'stopped' | 'clear' | 'passed' | 'collision' | 'resume' | 'finished' };
   supersession?: { previous: AppliedAction; envelope: ActionEnvelope };

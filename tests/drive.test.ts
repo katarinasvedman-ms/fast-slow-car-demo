@@ -138,12 +138,14 @@ test('seeded episodes repeat their kinds and only select adjacent traffic; new s
   stub.dispose();
 });
 
-test('a stopped free-drive episode clears as a scenario, accelerates in the gap, and isolates late episode work', async (context) => {
+test('a stopped free-drive encounter retains its animal and pending advice, then permits a gated physical turn', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   const pending = deferred<SlowResult>();
   const signals: AbortSignal[] = [];
   let fastCalls = 0;
-  const simulation = new Simulation(loadConfig({ BRAKE_DECEL_MPS2: '100', DRIVE_DWELL_S: '0.8', DRIVE_GAP_S: '2' }), fakeModels({
+  const simulation = new Simulation(loadConfig({
+    BRAKE_DECEL_MPS2: '100', DRIVE_DWELL_S: '0.8', DRIVE_GAP_S: '2', STALENESS_LIMIT_TICKS: '100', DRIVE_SEED: '41',
+  }), fakeModels({
     fast: { name: 'Mock brake', async decide() { fastCalls += 1; return brake; } },
     slow: { name: 'Mock episode', advise(_input, signal) {
       signals.push(signal);
@@ -152,46 +154,114 @@ test('a stopped free-drive episode clears as a scenario, accelerates in the gap,
   }), () => Date.now());
   context.after(() => simulation.dispose());
   simulation.setRunKind('free');
+  simulation.setDriveDuration(0);
   simulation.start();
   await finishGap(simulation, (ms) => context.mock.timers.tick(ms));
   await flush();
   context.mock.timers.tick(400);
   await flush();
   let snapshot = simulation.snapshot();
-  assert.equal(snapshot.drive.phase, 'dwell');
-  assert.equal(snapshot.drive.score.avoidedByBraking, 1);
-  assert.equal(snapshot.world.identity, 'elk');
-  assert.equal(signals[0]?.aborted, true);
-  assert.equal(snapshot.advice.status, 'cancelled');
-  assert.equal(snapshot.advice.cancellation?.reason, 'episode_ended');
-  for (let i = 0; i < 2; i += 1) { context.mock.timers.tick(400); await flush(); }
-  snapshot = simulation.snapshot();
-  assert.equal(snapshot.drive.phase, 'gap');
-  assert.equal(snapshot.scene.contact, null);
-  assert.equal(snapshot.world.hazardActive, false);
-  assert.equal(snapshot.world.identity, null);
-  assert.equal(fastCalls, 1);
-  assert.ok(snapshot.log.some((entry) => entry.scenario?.event === 'clear' && /not model output/.test(entry.detail)));
-  context.mock.timers.tick(400);
-  await flush();
-  assert.ok(Math.abs(simulation.snapshot().world.speedKmh - 2.88) < 1e-9);
-  const travelled = simulation.snapshot().world.distanceTravelledM;
-  await finishGap(simulation, (ms) => context.mock.timers.tick(ms));
-  snapshot = simulation.snapshot();
   assert.equal(snapshot.drive.phase, 'episode');
-  assert.equal(snapshot.drive.episodeId, 2);
-  assert.equal(snapshot.drive.score.hazardsFaced, 2);
-  assert.equal(signals.length, 2);
-  assert.equal(fastCalls, 2);
-  assert.ok(snapshot.world.distanceTravelledM > travelled);
-  assert.equal(snapshot.hazardVariant, null);
+  assert.equal(snapshot.world.outcome, 'braked');
+  assert.equal(snapshot.drive.score.avoidedByBraking, 1);
   assert.notEqual(snapshot.world.identity, null);
-  assert.equal(snapshot.scene.contact?.lane, snapshot.world.carLane);
+  assert.equal(signals[0]?.aborted, false);
+  assert.equal(snapshot.advice.status, 'thinking');
+  const stopped = snapshot;
+  for (let i = 0; i < 8; i += 1) { context.mock.timers.tick(400); await flush(); }
+  snapshot = simulation.snapshot();
+  assert.equal(snapshot.started, true);
+  assert.equal(snapshot.drive.phase, 'episode');
+  assert.equal(snapshot.drive.episodeId, 1);
+  assert.deepEqual(snapshot.scene.contact, stopped.scene.contact);
+  assert.equal(snapshot.world.hazardActive, true);
+  assert.equal(snapshot.world.identity, stopped.world.identity);
+  assert.equal(snapshot.world.speedKmh, 0);
+  assert.equal(snapshot.world.distanceTravelledM, stopped.world.distanceTravelledM);
+  assert.equal(snapshot.world.tick, stopped.world.tick + 8);
+  assert.equal(snapshot.drive.score.avoidedByBraking, 1);
+  assert.equal(snapshot.advice.status, 'thinking');
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0]?.aborted, false);
+  assert.equal(fastCalls, 1);
+  assert.equal(snapshot.log.filter((entry) => entry.scenario?.event === 'stopped').length, 1);
+  assert.equal(snapshot.log.some((entry) => entry.scenario?.event === 'clear'), false);
   assert.deepEqual(parseSnapshot(JSON.stringify(snapshot)), snapshot);
   pending.resolve(swerve);
   await flush();
-  assert.deepEqual(simulation.snapshot().advice, snapshot.advice);
-  assert.deepEqual(simulation.snapshot().gate, snapshot.gate);
+  snapshot = simulation.snapshot();
+  assert.equal(snapshot.advice.status, 'ready');
+  assert.equal(snapshot.advice.data?.observedAtTick, stopped.advice.observedAtTick);
+  assert.equal(snapshot.advice.gate?.allowed, true);
+  assert.match(snapshot.advice.application!, /slow swerve applied/);
+  assert.equal(snapshot.world.braking, false);
+  assert.equal(snapshot.world.speedKmh, 0);
+  assert.equal(snapshot.world.laneChange?.toLane, 3);
+  assert.equal(snapshot.scene.contact?.lane, 2);
+  for (let tick = 0; tick < 3; tick++) { context.mock.timers.tick(400); await flush(); }
+  assert.equal(simulation.snapshot().world.carLane, 3);
+  assert.equal(simulation.snapshot().world.laneChange, null);
+  for (let tick = 0; tick < 80 && simulation.snapshot().drive.phase === 'episode'; tick++) {
+    context.mock.timers.tick(400);
+    await flush();
+  }
+  snapshot = simulation.snapshot();
+  assert.equal(snapshot.drive.phase, 'gap');
+  assert.equal(snapshot.drive.episodeId, 1);
+  assert.equal(snapshot.drive.score.avoidedByBraking, 0);
+  assert.equal(snapshot.drive.score.avoidedBySwerving, 1);
+  assert.equal(snapshot.drive.score.hazardsFaced, 1);
+  assert.ok(snapshot.world.distanceTravelledM > stopped.world.distanceTravelledM);
+  assert.equal(snapshot.scene.contact, null);
+  assert.equal(signals.length, 1);
+  simulation.stopDrive();
+  const finished = simulation.snapshot();
+  context.mock.timers.tick(10_000);
+  await flush();
+  assert.deepEqual(simulation.snapshot(), finished);
+});
+
+for (const result of ['stale', 'error'] as const) test(`${result} slow advice leaves a stopped animal in place without retries`, async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
+  let answer!: (result: SlowResult) => void;
+  let fail!: (error: Error) => void;
+  let fastCalls = 0;
+  let slowCalls = 0;
+  const simulation = new Simulation(loadConfig({
+    BRAKE_DECEL_MPS2: '100', DRIVE_GAP_S: '0', STALENESS_LIMIT_TICKS: '1',
+  }), fakeModels({
+    fast: { name: 'Mock brake', async decide() { fastCalls++; return brake; } },
+    slow: { name: 'Mock late answer', advise() {
+      slowCalls++;
+      return new Promise<SlowResult>((resolve, reject) => { answer = resolve; fail = reject; });
+    } },
+  }), () => Date.now());
+  context.after(() => simulation.dispose());
+  simulation.setRunKind('free');
+  simulation.setDriveDuration(0);
+  simulation.start();
+  await finishGap(simulation, (ms) => context.mock.timers.tick(ms));
+  for (let tick = 0; tick < 4; tick++) { context.mock.timers.tick(400); await flush(); }
+  const stopped = simulation.snapshot();
+  assert.equal(stopped.world.outcome, 'braked');
+  if (result === 'stale') answer(swerve);
+  else fail(new Error('Mock service unavailable.'));
+  await flush();
+  for (let tick = 0; tick < 20; tick++) { context.mock.timers.tick(400); await flush(); }
+  const snapshot = simulation.snapshot();
+  assert.equal(snapshot.drive.phase, 'episode');
+  assert.equal(snapshot.drive.episodeId, stopped.drive.episodeId);
+  assert.equal(snapshot.world.outcome, 'braked');
+  assert.equal(snapshot.world.speedKmh, 0);
+  assert.deepEqual(snapshot.scene.contact, stopped.scene.contact);
+  assert.equal(snapshot.drive.score.avoidedByBraking, 1);
+  assert.equal(snapshot.drive.score.avoidedBySwerving, 0);
+  assert.equal(slowCalls, 1);
+  assert.equal(fastCalls, 1);
+  if (result === 'stale') {
+    assert.equal(snapshot.advice.gate?.allowed, false);
+    assert.equal(snapshot.drive.score.staleAdvice, 1);
+  } else assert.equal(snapshot.advice.status, 'error');
 });
 
 test('free drive reasons once, applies episode-stamped advice, recovers 90 km/h, and counts a completed swerve only once', async (context) => {
@@ -548,7 +618,7 @@ test('continuous rear impacts pause once, cancel old advice, and resume with the
   assert.equal(simulation.snapshot().drive.score.collisions, 1);
 });
 
-test('a rear-threat stop clears only the animal after dwell and retains the stopped following car through recovery and the next encounter', async (context) => {
+test('fast-only rear-threat stops retain the animal and following car without auto-clearance or extra calls', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'] });
   let calls = 0;
   const simulation = new Simulation(loadConfig({
@@ -564,37 +634,40 @@ test('a rear-threat stop clears only the animal after dwell and retains the stop
   simulation.setDriveDuration(0);
   simulation.start();
   await finishGap(simulation, (ms) => context.mock.timers.tick(ms));
-  for (let tick = 0; tick < 100 && simulation.snapshot().drive.phase === 'episode'; tick++) {
+  for (let tick = 0; tick < 100 && simulation.snapshot().world.outcome === 'running'; tick++) {
     context.mock.timers.tick(400);
     await flush();
   }
   const stopped = simulation.snapshot();
-  assert.equal(stopped.drive.phase, 'dwell');
+  assert.equal(stopped.drive.phase, 'episode');
+  assert.equal(stopped.world.outcome, 'braked');
+  assert.equal(stopped.world.speedKmh, 0);
   assert.equal(stopped.drive.score.avoidedByBraking, 1);
   assert.equal(stopped.scene.followingVehicle?.speedKmh, 0);
   const callsAtStop = calls;
-  for (let tick = 0; tick < 2; tick++) { context.mock.timers.tick(400); await flush(); }
-  const gap = simulation.snapshot();
-  assert.equal(gap.drive.phase, 'gap');
-  assert.equal(gap.scene.contact, null);
-  assert.deepEqual(gap.scene.followingVehicle, stopped.scene.followingVehicle);
-  assert.equal(gap.world.braking, false);
-  assert.ok(gap.drive.phaseRemainingS > 6);
-  assert.equal(calls, callsAtStop);
-  for (let tick = 0; tick < 30 && simulation.snapshot().drive.phase === 'gap'; tick++) {
+  for (let tick = 0; tick < 30; tick++) {
     context.mock.timers.tick(400);
     await flush();
-    if (simulation.snapshot().drive.phase === 'gap') assert.equal(calls, callsAtStop);
   }
-  const next = simulation.snapshot();
-  assert.equal(next.drive.phase, 'episode');
-  assert.equal(next.drive.episodeId, 2);
-  assert.equal(next.world.speedKmh, 50);
-  assert.equal(next.world.distanceM, 80);
-  const gapTravelled = next.world.distanceTravelledM - gap.world.distanceTravelledM;
-  assert.ok(Math.abs(next.scene.followingVehicle!.distanceBehindM - gap.scene.followingVehicle!.distanceBehindM - gapTravelled) < 1e-8);
-  assert.equal(next.scene.followingVehicle?.speedKmh, 0);
-  assert.equal(next.drive.score.avoidedByBraking, 1);
+  const held = simulation.snapshot();
+  assert.equal(held.drive.phase, 'episode');
+  assert.equal(held.drive.episodeId, stopped.drive.episodeId);
+  assert.equal(held.world.speedKmh, 0);
+  assert.deepEqual(held.scene.contact, stopped.scene.contact);
+  assert.deepEqual(held.scene.followingVehicle, stopped.scene.followingVehicle);
+  assert.equal(held.world.braking, true);
+  assert.equal(held.drive.score.avoidedByBraking, 1);
+  assert.equal(held.drive.score.hazardsFaced, 1);
+  assert.equal(calls, callsAtStop);
+  simulation.stopDrive();
+  const finished = simulation.snapshot();
+  context.mock.timers.tick(10_000);
+  await flush();
+  assert.deepEqual(simulation.snapshot(), finished);
+  assert.deepEqual(finished.scene.contact, stopped.scene.contact);
+  simulation.reset();
+  assert.equal(simulation.snapshot().scene.contact, null);
+  assert.equal(simulation.snapshot().drive.score.avoidedByBraking, 0);
 });
 
 test('persistent rear traffic can collide during a quiet stretch and pauses once without making model calls', async (context) => {
